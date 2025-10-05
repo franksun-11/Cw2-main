@@ -49,7 +49,7 @@ public class ServiceController {
     /**
      * 3.calculate the Euclidian distance between two positions
      */
-    @PostMapping
+    @PostMapping("/distanceTo")
     public Result distanceTo(@RequestBody TwoPositionsRequest request) {
         try {
             // Validate input
@@ -80,7 +80,7 @@ public class ServiceController {
     /**
      * 4.check if two positions are close to each other
      */
-    @PostMapping
+    @PostMapping("/closeTo")
     public Result closeTo(@RequestBody TwoPositionsRequest request) {
         try {
             // Validate input
@@ -99,14 +99,20 @@ public class ServiceController {
                     request.getPosition2()
             );
 
-            logger.info("Close to check result: {}", isClose);
+            logger.info("CloseTo check result: {}", isClose);
             return Result.success(isClose);
 
         } catch (Exception e) {
-            logger.error("Error checking close to", e);
-            return Result.error("Error checking close to");
+            logger.error("Error checking closeTo", e);
+            return Result.error("Error checking closeTo");
         }
     }
+
+    /**
+     * 5.calculate the next position based on the starting position and angle
+     */
+
+
 
 
     @GetMapping("/demo")
