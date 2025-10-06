@@ -18,9 +18,6 @@ public class GeoServiceImpl implements GeoService {
 
     /**
      * Calculate the Euclidean distance between two positions
-     * @param position1 The first position
-     * @param position2 The second position
-     * @return The Euclidean distance between the two positions
      */
     @Override
     public double calculateDistance(LngLat position1, LngLat position2) {
@@ -39,9 +36,6 @@ public class GeoServiceImpl implements GeoService {
 
     /**
      * Return the next position as LngLat for a start position and an angle
-     * @param start The start position
-     * @param angle The angle in degrees (0-360)
-     * @return The next position as LngLat
      */
     @Override
     public LngLat nextPosition(LngLat start, double angle) {
@@ -62,9 +56,6 @@ public class GeoServiceImpl implements GeoService {
 
     /**
      * Check if a position is inside a polygon region using ray casting algorithm
-     * @param position The position to check
-     * @param vertices The vertices of the polygon region
-     * @return true if the position is inside the region, false otherwise
      */
     @Override
     public boolean isInRegion(LngLat position, List<LngLat> vertices) {
@@ -106,7 +97,7 @@ public class GeoServiceImpl implements GeoService {
             return false;
         }
 
-        // Check if the point's longitude intersects with the segment's longitude
+        // calculate the longitude of the intersection point
         double xIntersection = (point.getLat() - v1.getLat()) * (v2.getLng() - v1.getLng()) /
                 (v2.getLat() - v1.getLat()) + v1.getLng();
 

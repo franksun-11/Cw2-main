@@ -5,20 +5,19 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
+import uk.ac.ed.acp.cw2.dto.IsInRegionRequest;
 import uk.ac.ed.acp.cw2.pojo.LngLat;
-import uk.ac.ed.acp.cw2.pojo.NextPositionRequest;
+import uk.ac.ed.acp.cw2.dto.NextPositionRequest;
 import uk.ac.ed.acp.cw2.pojo.Result;
-import uk.ac.ed.acp.cw2.pojo.TwoPositionsRequest;
+import uk.ac.ed.acp.cw2.dto.TwoPositionsRequest;
 import uk.ac.ed.acp.cw2.service.GeoService;
 
 import java.net.URL;
 
 /**
- * Controller class that handles various HTTP endpoints for the application.
- * Provides functionality for serving the index page, retrieving a static UUID,
- * and managing key-value pairs through POST requests.
+ * Controller class that handles various HTTP endpoints for the application
  */
-@RestController()
+@RestController
 @RequestMapping("/api/v1")
 public class ServiceController {
 
@@ -138,6 +137,47 @@ public class ServiceController {
             return Result.error("Error calculating nextPosition");
         }
     }
+
+    /**
+     * 6. Check if a position is inside a polygon region
+     */
+    @PostMapping("/isInRegion")
+    public Result isInRegion(@RequestBody IsInRegionRequest request) {
+        try {
+            // Validate input
+            if (request == null ||
+                    request.getPosition() == null ||
+                    request.getRegion() == null ||
+                    request.getPosition().getLng() == null ||
+                    request.getPosition().getLat() == null ||
+                    !request.getPosition().isValid() ||
+                    request.getRegion().getVertices() == null) {
+                logger.warn("Invalid isInRegion request: {}", request);
+                return Result.error("Invalid position or region data");
+            }
+
+            // Check if region is closed
+            if (!request.getRegion().isClosed()) {
+                logger.warn("Region is not closed: {}", request.getRegion().getName());
+                return Result.error("Region is not closed");
+            }
+
+            // Check if position is in region
+            boolean isInRegion = geoService.isInRegion(
+                    request.getPosition(),
+                    request.getRegion().getVertices()
+            );
+
+            logger.info("isInRegion check result: {}", isInRegion);
+            return Result.success(isInRegion);
+
+        } catch (Exception e) {
+            logger.error("Error checking if position is in region", e);
+            return Result.error("Error checking if position is in region");
+        }
+    }
+
+
 
 
 
