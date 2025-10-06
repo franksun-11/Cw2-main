@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 import uk.ac.ed.acp.cw2.pojo.LngLat;
+import uk.ac.ed.acp.cw2.pojo.NextPositionRequest;
 import uk.ac.ed.acp.cw2.pojo.Result;
 import uk.ac.ed.acp.cw2.pojo.TwoPositionsRequest;
 import uk.ac.ed.acp.cw2.service.GeoService;
@@ -111,6 +112,32 @@ public class ServiceController {
     /**
      * 5.calculate the next position based on the starting position and angle
      */
+    @PostMapping("/nextPosition")
+    public Result nextPosition(@RequestBody NextPositionRequest request) {
+        try {
+            // Validate input
+            if (request == null ||
+                    request.getStart() == null ||
+                    !request.getStart().isValid() ||
+                    request.getAngle() == null) {
+                logger.warn("Invalid nextPosition request: {}", request);
+                return Result.error("Invalid position data");
+            }
+
+            // Calculate next position
+            LngLat nextPos = geoService.nextPosition(
+                    request.getStart(),
+                    request.getAngle()
+            );
+
+            logger.info("Next position calculated: {}", nextPos);
+            return Result.success(nextPos);
+
+        } catch (Exception e) {
+            logger.error("Error calculating nextPosition", e);
+            return Result.error("Error calculating nextPosition");
+        }
+    }
 
 
 
