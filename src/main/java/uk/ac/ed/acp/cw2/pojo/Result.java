@@ -1,6 +1,7 @@
 package uk.ac.ed.acp.cw2.pojo;
 
 import lombok.Data;
+import org.springframework.http.HttpStatus;
 
 import java.io.Serializable;
 
@@ -10,7 +11,7 @@ import java.io.Serializable;
 @Data
 public class Result implements Serializable {
 
-    private Integer code; // Encoding: 1 for success, 0 for failure
+    private Integer code; // HTTP status code
     private String msg;   // Error message
     private Object data;  // Data
 
@@ -20,7 +21,7 @@ public class Result implements Serializable {
      */
     public static Result success() {
         Result result = new Result();
-        result.code = 1;
+        result.code = HttpStatus.OK.value(); // 200
         result.msg = "success";
         return result;
     }
@@ -33,20 +34,20 @@ public class Result implements Serializable {
     public static Result success(Object object) {
         Result result = new Result();
         result.data = object;
-        result.code = 1;
+        result.code = HttpStatus.OK.value(); // 200
         result.msg = "success";
         return result;
     }
 
     /**
-     * Error result
+     * Error result for bad requests
      * @param msg Error message
      * @return Result object with error status
      */
     public static Result error(String msg) {
         Result result = new Result();
         result.msg = msg;
-        result.code = 0;
+        result.code = HttpStatus.BAD_REQUEST.value(); // 400
         return result;
     }
 }

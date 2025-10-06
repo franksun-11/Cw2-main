@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import uk.ac.ed.acp.cw2.dto.IsInRegionRequest;
 import uk.ac.ed.acp.cw2.pojo.LngLat;
@@ -50,7 +51,7 @@ public class ServiceController {
      * 3.calculate the Euclidian distance between two positions
      */
     @PostMapping("/distanceTo")
-    public Result distanceTo(@RequestBody TwoPositionsRequest request) {
+    public ResponseEntity<Double> distanceTo(@RequestBody TwoPositionsRequest request) {
         try {
             // Validate input
             if (request == null ||
@@ -59,7 +60,7 @@ public class ServiceController {
                     !request.getPosition1().isValid() ||
                     !request.getPosition2().isValid()) {
                 logger.warn("Invalid distanceTo request: {}", request);
-                return Result.error("Invalid position data");
+                return ResponseEntity.badRequest().build(); // 400 status
             }
 
             // Calculate distance
@@ -69,11 +70,11 @@ public class ServiceController {
             );
 
             logger.info("Distance calculated: {}", distance);
-            return Result.success(distance);
+            return ResponseEntity.ok(distance); // 200 status
 
         } catch (Exception e) {
             logger.error("Error calculating distance", e);
-            return Result.error("Error calculating distance");
+            return ResponseEntity.badRequest().build(); // 400 status
         }
     }
 
@@ -81,7 +82,7 @@ public class ServiceController {
      * 4.check if two positions are close to each other
      */
     @PostMapping("/closeTo")
-    public Result closeTo(@RequestBody TwoPositionsRequest request) {
+    public ResponseEntity<Boolean> closeTo(@RequestBody TwoPositionsRequest request) {
         try {
             // Validate input
             if (request == null ||
@@ -90,7 +91,7 @@ public class ServiceController {
                     !request.getPosition1().isValid() ||
                     !request.getPosition2().isValid()) {
                 logger.warn("Invalid closeTo request: {}", request);
-                return Result.error("Invalid position data");
+                return ResponseEntity.badRequest().build(); // 400 status
             }
 
             // Check if close to each other
@@ -100,11 +101,11 @@ public class ServiceController {
             );
 
             logger.info("CloseTo check result: {}", isClose);
-            return Result.success(isClose);
+            return ResponseEntity.ok(isClose); // 200 status
 
         } catch (Exception e) {
             logger.error("Error checking closeTo", e);
-            return Result.error("Error checking closeTo");
+            return ResponseEntity.badRequest().build(); // 400 status
         }
     }
 
@@ -112,7 +113,7 @@ public class ServiceController {
      * 5.calculate the next position based on the starting position and angle
      */
     @PostMapping("/nextPosition")
-    public Result nextPosition(@RequestBody NextPositionRequest request) {
+    public ResponseEntity<LngLat> nextPosition(@RequestBody NextPositionRequest request) {
         try {
             // Validate input
             if (request == null ||
@@ -120,7 +121,7 @@ public class ServiceController {
                     !request.getStart().isValid() ||
                     request.getAngle() == null) {
                 logger.warn("Invalid nextPosition request: {}", request);
-                return Result.error("Invalid position data");
+                return ResponseEntity.badRequest().build(); // 400 status
             }
 
             // Calculate next position
@@ -130,11 +131,11 @@ public class ServiceController {
             );
 
             logger.info("Next position calculated: {}", nextPos);
-            return Result.success(nextPos);
+            return ResponseEntity.ok(nextPos); // 200 status
 
         } catch (Exception e) {
             logger.error("Error calculating nextPosition", e);
-            return Result.error("Error calculating nextPosition");
+            return ResponseEntity.badRequest().build(); // 400 status
         }
     }
 
@@ -142,7 +143,7 @@ public class ServiceController {
      * 6. Check if a position is inside a polygon region
      */
     @PostMapping("/isInRegion")
-    public Result isInRegion(@RequestBody IsInRegionRequest request) {
+    public ResponseEntity<Boolean> isInRegion(@RequestBody IsInRegionRequest request) {
         try {
             // Validate input
             if (request == null ||
@@ -153,13 +154,13 @@ public class ServiceController {
                     !request.getPosition().isValid() ||
                     request.getRegion().getVertices() == null) {
                 logger.warn("Invalid isInRegion request: {}", request);
-                return Result.error("Invalid position or region data");
+                return ResponseEntity.badRequest().build(); // 400 status
             }
 
             // Check if region is closed
             if (!request.getRegion().isClosed()) {
                 logger.warn("Region is not closed: {}", request.getRegion().getName());
-                return Result.error("Region is not closed");
+                return ResponseEntity.badRequest().build(); // 400 status
             }
 
             // Check if position is in region
@@ -169,18 +170,13 @@ public class ServiceController {
             );
 
             logger.info("isInRegion check result: {}", isInRegion);
-            return Result.success(isInRegion);
+            return ResponseEntity.ok(isInRegion); // 200 status
 
         } catch (Exception e) {
             logger.error("Error checking if position is in region", e);
-            return Result.error("Error checking if position is in region");
+            return ResponseEntity.badRequest().build(); // 400 status
         }
     }
-
-
-
-
-
 
     @GetMapping("/demo")
     public String demo() {
