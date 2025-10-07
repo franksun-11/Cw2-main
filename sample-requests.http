@@ -37,6 +37,21 @@ Content-Type: application/json
   }
 }
 
+### 3. POST distanceTo - invalid request (syntactic error - missing field)
+POST http://localhost:8080/api/v1/distanceTo
+Content-Type: application/json
+
+{
+  "position1": {
+    "lng": -3.192473
+  },
+  "position2": {
+    "lng": -3.192473,
+    "lat": 55.942617
+  }
+}
+
+
 
 ### 4. POST closeTo - valid request (close positions)
 POST http://localhost:8080/api/v1/closeTo
@@ -69,6 +84,35 @@ Content-Type: application/json
   }
 }
 
+### 4. POST closeTo - invalid request (out of range)
+POST http://localhost:8080/api/v1/closeTo
+Content-Type: application/json
+
+{
+  "position1": {
+    "lng": -200.0,
+    "lat": 50.946233
+  },
+  "position2": {
+    "lng": -3.192473,
+    "lat": 55.042617
+  }
+}
+
+### 4. POST closeTo - invalid request (syntactic error - missing field)
+POST http://localhost:8080/api/v1/closeTo
+Content-Type: application/json
+
+{
+  "position1": {
+    "lng": -3.992473,
+    "lat": 35.946233
+  },
+  "position2": {
+    "lng": -32.192473
+  }
+}
+
 
 ### 5. POST nextPosition - valid request
 POST http://localhost:8080/api/v1/nextPosition
@@ -93,6 +137,41 @@ Content-Type: application/json
     "lat": 55.946233
   },
   "angle": 999.0
+}
+
+### 5. POST nextPosition - invalid request (out of range)
+POST http://localhost:8080/api/v1/nextPosition
+Content-Type: application/json
+
+{
+  "start": {
+    "lng": -181.0,
+    "lat": 55.946233
+  },
+  "angle": 45.0
+}
+
+### 5. POST nextPosition - invalid request (semantic error - angle null)
+POST http://localhost:8080/api/v1/nextPosition
+Content-Type: application/json
+
+{
+  "start": {
+    "lng": -3.192473,
+    "lat": 55.946233
+  },
+  "angle": null
+}
+
+### 5. POST nextPosition - invalid request (syntactic error - missing field)
+POST http://localhost:8080/api/v1/nextPosition
+Content-Type: application/json
+
+{
+  "start": {
+    "lng": -3.192473,
+    "lat": 55.946233
+  }
 }
 
 
@@ -201,3 +280,99 @@ Content-Type: application/json
     ]
   }
 }
+
+### 6. POST isInRegion - invalid request (syntactic error - missing field)
+POST http://localhost:8080/api/v1/isInRegion
+Content-Type: application/json
+
+{
+  "position": {
+    "lng": -3.188
+  },
+  "region": {
+    "name": "central",
+    "vertices": [
+      {
+        "lng": -3.192473,
+        "lat": 55.946233
+      },
+      {
+        "lng": -3.192473,
+        "lat": 55.942617
+      },
+      {
+        "lng": -3.184319,
+        "lat": 55.942617
+      },
+      {
+        "lng": -3.184319,
+        "lat": 55.946233
+      },
+      {
+        "lng": -3.192473,
+        "lat": 55.946233
+      }
+    ]
+  }
+}
+
+### 6.POST isInRegion - invalid request (out of range)
+POST http://localhost:8080/api/v1/isInRegion
+Content-Type: application/json
+
+{
+  "position": {
+    "lng": -3.188,
+    "lat": 100.0
+  },
+  "region": {
+    "name": "central",
+    "vertices": [
+      {
+        "lng": -3.192473,
+        "lat": 55.946233
+      },
+      {
+        "lng": -3.192473,
+        "lat": 55.942617
+      },
+      {
+        "lng": -3.184319,
+        "lat": 55.942617
+      },
+      {
+        "lng": -3.184319,
+        "lat": 55.946233
+      },
+      {
+        "lng": -3.192473,
+        "lat": 55.946233
+      }
+    ]
+  }
+}
+
+### 6. POST isInRegion - invalid request (inadequate vertices)
+POST http://localhost:8080/api/v1/isInRegion
+Content-Type: application/json
+
+{
+  "position": {
+    "lng": -3.188,
+    "lat": 55.944
+  },
+  "region": {
+    "name": "central",
+    "vertices": [
+      {
+        "lng": -3.192473,
+        "lat": 55.946233
+      },
+      {
+        "lng": -3.192473,
+        "lat": 55.942617
+      }
+    ]
+  }
+}
+
