@@ -126,7 +126,7 @@ public class ServiceController {
 
             // Validate angle is multiple of 22.5 or 999 for hover
             double angle = request.getAngle();
-            if (angle != 999 && Math.abs(angle % 22.5) > 1e-10 && angle <= 360.0 && angle >= 0.0) {
+            if (angle != 999 && Math.abs(angle % 22.5) > 1e-12 && angle <= 360.0 && angle >= 0.0) {
                 logger.warn("Invalid angle value: {}. Angle must be a multiple of 22.5 or 999 for hover", angle);
                 return ResponseEntity.badRequest().build(); // 400 status
             }

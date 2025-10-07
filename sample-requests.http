@@ -51,6 +51,37 @@ Content-Type: application/json
   }
 }
 
+### 3. POST distanceTo - invalid request (positive longitude - out of Edinburgh area)
+POST http://localhost:8080/api/v1/distanceTo
+Content-Type: application/json
+
+{
+  "position1": {
+    "lng": 3.192473,
+    "lat": 55.946233
+  },
+  "position2": {
+    "lng": -3.192473,
+    "lat": 55.942617
+  }
+}
+
+### 4. POST closeTo - invalid request (negative latitude - out of Edinburgh area)
+POST http://localhost:8080/api/v1/closeTo
+Content-Type: application/json
+
+{
+  "position1": {
+    "lng": -3.192473,
+    "lat": -55.946233
+  },
+  "position2": {
+    "lng": -3.192473,
+    "lat": 55.942617
+  }
+}
+
+
 
 
 ### 4. POST closeTo - valid request (close positions)
@@ -113,6 +144,22 @@ Content-Type: application/json
   }
 }
 
+### 4. POST closeTo - invalid request (negative latitude - out of Edinburgh area)
+POST http://localhost:8080/api/v1/closeTo
+Content-Type: application/json
+
+{
+  "position1": {
+    "lng": -3.192473,
+    "lat": -55.946233
+  },
+  "position2": {
+    "lng": -3.192473,
+    "lat": 55.942617
+  }
+}
+
+
 
 ### 5. POST nextPosition - valid request
 POST http://localhost:8080/api/v1/nextPosition
@@ -173,6 +220,32 @@ Content-Type: application/json
     "lat": 55.946233
   }
 }
+
+### 5. POST nextPosition - invalid request (angle not multiple of 22.5)
+POST http://localhost:8080/api/v1/nextPosition
+Content-Type: application/json
+
+{
+  "start": {
+    "lng": -3.192473,
+    "lat": 55.946233
+  },
+  "angle": 45.5
+}
+
+### 5. POST nextPosition - invalid request (positive longitude - out of Edinburgh area)
+POST http://localhost:8080/api/v1/nextPosition
+Content-Type: application/json
+
+{
+  "start": {
+    "lng": 3.192473,
+    "lat": 55.946233
+  },
+  "angle": 45.0
+}
+
+
 
 
 ### 6. POST isInRegion - valid request (inside region)
