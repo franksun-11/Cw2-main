@@ -9,7 +9,6 @@ import org.springframework.web.bind.annotation.*;
 import uk.ac.ed.acp.cw2.dto.IsInRegionRequest;
 import uk.ac.ed.acp.cw2.pojo.LngLat;
 import uk.ac.ed.acp.cw2.dto.NextPositionRequest;
-import uk.ac.ed.acp.cw2.pojo.Result;
 import uk.ac.ed.acp.cw2.dto.TwoPositionsRequest;
 import uk.ac.ed.acp.cw2.service.GeoService;
 
@@ -20,9 +19,9 @@ import java.net.URL;
  */
 @RestController
 @RequestMapping("/api/v1")
-public class ServiceController {
+public class GeoController {
 
-    private static final Logger logger = LoggerFactory.getLogger(ServiceController.class);
+    private static final Logger logger = LoggerFactory.getLogger(GeoController.class);
 
     @Value("${ilp.service.url}")
     public URL serviceUrl;
