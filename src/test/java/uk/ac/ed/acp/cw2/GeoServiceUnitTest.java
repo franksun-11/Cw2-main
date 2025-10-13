@@ -23,8 +23,9 @@ class GeoServiceUnitTest {
     @InjectMocks
     private GeoServiceImpl geoService;
 
+    // distanceTo
     @Test
-    void calculateDistance_ShouldReturnCorrectDistance() {
+    void distanceTo_ShouldReturnCorrectDistance() {
         // Given
         LngLat pos1 = new LngLat(-3.192473, 55.946233);
         LngLat pos2 = new LngLat(-3.192473, 55.942617);
@@ -36,6 +37,20 @@ class GeoServiceUnitTest {
         assertThat(distance).isCloseTo(0.003616, within(0.000001));
     }
 
+    @Test
+    void distanceTo_ShouldReturnZero_WhenSamePosition() {
+        // Given
+        LngLat pos = new LngLat(-3.192473, 55.946233);
+
+        // When
+        double distance = geoService.calculateDistance(pos, pos);
+
+        // Then
+        assertThat(distance).isCloseTo(0.0, within(0.000001));
+    }
+
+
+    // isCloseTo
     @Test
     void isCloseTo_ShouldReturnTrue_WhenPositionsAreClose() {
         // Given
@@ -62,6 +77,8 @@ class GeoServiceUnitTest {
         assertFalse(result);
     }
 
+
+    // nextPosition
     @Test
     void nextPosition_ShouldReturnSamePosition_WhenAngleIs999() {
         // Given
@@ -93,6 +110,94 @@ class GeoServiceUnitTest {
     }
 
     @Test
+    void nextPosition_ShouldReturnNewPosition_WithZeroAngle() {
+        // Given
+        LngLat start = new LngLat(-3.192473, 55.946233);
+        double angle = 0.0;
+
+        // When
+        LngLat result = geoService.nextPosition(start, angle);
+
+        // Then
+        assertThat(result.getLng()).isGreaterThan(start.getLng());
+        assertThat(result.getLat()).isCloseTo(start.getLat(), within(0.000001));
+    }
+
+
+
+    // isInRegion
+    @Test
+    void isInRegion_ShouldReturnTrue_WhenPositionIsInside() {
+        // Given
+        LngLat position = new LngLat(-3.188, 55.944);
+        List<LngLat> vertices = Arrays.asList(
+                new LngLat(-3.192473, 55.946233),
+                new LngLat(-3.192473, 55.942617),
+                new LngLat(-3.184319, 55.942617),
+                new LngLat(-3.184319, 55.946233),
+                new LngLat(-3.192473, 55.946233)
+        );
+
+        // When
+        boolean result = geoService.isInRegion(position, vertices);
+
+        // Then
+        assertTrue(result);
+    }
+    @Test
+    void isInRegion_ShouldReturnFalse_WhenPositionIsOutside() {
+        // Given
+        LngLat position = new LngLat(-3.180, 55.944); // Outside the region
+        List<LngLat> vertices = Arrays.asList(
+                new LngLat(-3.192473, 55.946233),
+                new LngLat(-3.192473, 55.942617),
+                new LngLat(-3.184319, 55.942617),
+                new LngLat(-3.184319, 55.946233),
+                new LngLat(-3.192473, 55.946233)
+        );
+
+        // When
+        boolean result = geoService.isInRegion(position, vertices);
+
+        // Then
+        assertFalse(result);
+    }
+    @Test
+    void isInRegion_EdgeCase_WhenPositionOnBoundary() {
+        // Given
+        LngLat position = new LngLat(-3.192473, 55.944); // On the boundary
+        List<LngLat> vertices = Arrays.asList(
+                new LngLat(-3.192473, 55.946233),
+                new LngLat(-3.192473, 55.942617),
+                new LngLat(-3.184319, 55.942617),
+                new LngLat(-3.184319, 55.946233),
+                new LngLat(-3.192473, 55.946233)
+        );
+
+        // When
+        boolean result = geoService.isInRegion(position, vertices);
+
+        // This test ensures the method handles boundary cases without exception
+        assertTrue(result);
+    }
+    @Test
+    void isInRegion_ShouldReturnFalse_WhenRegionIsNotClosed() {
+        // Given
+        LngLat position = new LngLat(-3.188, 55.944);
+        List<LngLat> vertices = Arrays.asList(
+                new LngLat(-3.192473, 55.946233),
+                new LngLat(-3.192473, 55.942617),
+                new LngLat(-3.184319, 55.942617),
+                new LngLat(-3.184319, 55.946233)
+        );
+
+        // When
+        boolean result = geoService.isInRegion(position, vertices);
+
+        // Then
+        assertFalse(result);
+    }
+    @Test
     void isInRegion_ShouldReturnFalse_WhenVerticesAreNull() {
         // Given
         LngLat position = new LngLat(-3.188, 55.944);
@@ -104,14 +209,13 @@ class GeoServiceUnitTest {
         // Then
         assertFalse(result);
     }
-
     @Test
     void isInRegion_ShouldReturnFalse_WhenVerticesAreInsufficient() {
         // Given
         LngLat position = new LngLat(-3.188, 55.944);
         List<LngLat> vertices = Arrays.asList(
-            new LngLat(-3.192473, 55.946233),
-            new LngLat(-3.192473, 55.942617)
+                new LngLat(-3.192473, 55.946233),
+                new LngLat(-3.192473, 55.942617)
         );
 
         // When
@@ -120,4 +224,6 @@ class GeoServiceUnitTest {
         // Then
         assertFalse(result);
     }
+
+
 }
