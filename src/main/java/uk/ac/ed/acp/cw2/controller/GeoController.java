@@ -125,8 +125,14 @@ public class GeoController {
 
             // Validate angle is multiple of 22.5 or 999 for hover
             double angle = request.getAngle();
-            if (angle != 999 && Math.abs(angle % 22.5) > 1e-12 && angle <= 360.0 && angle >= 0.0) {
+            if (angle != 999.0 && Math.abs(angle % 22.5) > 1e-12) {
                 logger.warn("Invalid angle value: {}. Angle must be a multiple of 22.5 or 999 for hover", angle);
+                return ResponseEntity.badRequest().build(); // 400 status
+            }
+
+            // Additionally check if angle is in valid range (0-360) when it's not 999
+            if (angle != 999.0 && (angle < 0.0 || angle > 360.0)) {
+                logger.warn("Invalid angle value: {}. Angle must be between 0 and 360, or 999 for hover", angle);
                 return ResponseEntity.badRequest().build(); // 400 status
             }
 
