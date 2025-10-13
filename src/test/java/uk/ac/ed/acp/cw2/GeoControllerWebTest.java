@@ -16,6 +16,7 @@ import uk.ac.ed.acp.cw2.service.GeoService;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -35,6 +36,20 @@ class GeoControllerWebTest {
         mockMvc = MockMvcBuilders.standaloneSetup(geoController).build();
     }
 
+    @Test
+    void index_ShouldReturnWelcomeMessage() throws Exception {
+        mockMvc.perform(get("/api/v1/"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void uid_ShouldReturnStaticUid() throws Exception {
+        mockMvc.perform(get("/api/v1/uid"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("s2564099"));
+    }
+
+    // distanceTo
     @Test
     void distanceTo_ShouldReturnDistance_WhenValidRequest() throws Exception {
         // Given
@@ -62,7 +77,7 @@ class GeoControllerWebTest {
     }
 
     @Test
-    void distanceTo_ShouldReturnBadRequest_WhenInvalidRequest() throws Exception {
+    void distanceTo_ShouldReturnBadRequest_WhenMissingField() throws Exception {
         // Given
         String requestBody = """
             {
@@ -83,6 +98,15 @@ class GeoControllerWebTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void distanceTo_ShouldReturnBadRequest_WhenEmptyRequestBody() throws Exception {
+        mockMvc.perform(post("/api/v1/distanceTo")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(""))
+                .andExpect(status().isBadRequest());
+    }
+
+    // closeTo
     @Test
     void closeTo_ShouldReturnTrue_WhenPositionsAreClose() throws Exception {
         // Given
@@ -136,6 +160,33 @@ class GeoControllerWebTest {
     }
 
     @Test
+    void closeTo_ShouldReturnBadRequest_WhenEmptyRequestBody() throws Exception {
+        mockMvc.perform(post("/api/v1/closeTo")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(""))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void closeTo_ShouldReturnBadRequest_WhenMissingField() throws Exception {
+        String requestBody = """
+        {
+            "position1": {
+                "lng": -3.192473,
+                "lat": 55.946233
+            }
+        }
+        """;
+
+        mockMvc.perform(post("/api/v1/closeTo")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest());
+    }
+
+
+    // nextPosition
+    @Test
     void nextPosition_ShouldReturnNewPosition_WhenValidRequest() throws Exception {
         // Given
         LngLat expectedPosition = new LngLat(-3.192367, 55.946339);
@@ -180,6 +231,65 @@ class GeoControllerWebTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void nextPosition_ShouldReturnBadRequest_WhenNullAngle() throws Exception {
+        String requestBody = """
+        {
+            "start": {
+                "lng": -3.192473,
+                "lat": 55.946233
+            },
+            "angle": null
+        }
+        """;
+
+        mockMvc.perform(post("/api/v1/nextPosition")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void nextPosition_ShouldReturnSamePosition_WhenHoverAngle() throws Exception {
+        // Given
+        LngLat expectedPosition = new LngLat(-3.192473, 55.946233);
+        when(geoService.nextPosition(any(), anyDouble())).thenReturn(expectedPosition);
+
+        String requestBody = """
+        {
+            "start": {
+                "lng": -3.192473,
+                "lat": 55.946233
+            },
+            "angle": 999.0
+        }
+        """;
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/nextPosition")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lng").value(-3.192473))
+                .andExpect(jsonPath("$.lat").value(55.946233));
+    }
+
+    @Test
+    void nextPosition_ShouldReturnBadRequest_WhenMissingField() throws Exception {
+        String requestBody = """
+        {
+            "angle": 45.0
+        }
+        """;
+
+        mockMvc.perform(post("/api/v1/nextPosition")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest());
+    }
+
+
+    // isInRegion
     @Test
     void isInRegion_ShouldReturnTrue_WhenPositionIsInside() throws Exception {
         // Given
@@ -226,7 +336,6 @@ class GeoControllerWebTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string("true"));
     }
-
     @Test
     void isInRegion_ShouldReturnBadRequest_WhenRegionIsNotClosed() throws Exception {
         // Given
@@ -266,4 +375,53 @@ class GeoControllerWebTest {
                 .content(requestBody))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void isInRegion_ShouldReturnBadRequest_WhenEmptyRequestBody() throws Exception {
+        mockMvc.perform(post("/api/v1/isInRegion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(""))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void isInRegion_ShouldReturnBadRequest_WhenMissingField() throws Exception {
+        String requestBody = """
+        {
+          "region": {
+            "name": "central",
+            "vertices": [
+              {
+                "lng": -3.192473,
+                "lat": 55.946233
+              },
+              {
+                "lng": -3.192473,
+                "lat": 55.942617
+              },
+              {
+                "lng": -3.184319,
+                "lat": 55.942617
+              },
+              {
+                "lng": -3.184319,
+                "lat": 55.946233
+              },
+              {
+                "lng": -3.192473,
+                "lat": 55.946233
+              }
+            ]
+          }
+        }
+        """;
+
+        mockMvc.perform(post("/api/v1/isInRegion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest());
+    }
+
 }
+
+
