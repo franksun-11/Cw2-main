@@ -163,6 +163,19 @@ public class GeoController {
                 return ResponseEntity.badRequest().build(); // 400 status
             }
 
+            // Validate region vertices
+            if (request.getRegion().getVertices() != null) {
+                for (LngLat vertex : request.getRegion().getVertices()) {
+                    if (vertex == null ||
+                            vertex.getLng() == null ||
+                            vertex.getLat() == null ||
+                            !vertex.isValid()) {
+                        logger.warn("Invalid vertices in region: {}", vertex);
+                        return ResponseEntity.badRequest().build();
+                    }
+                }
+            }
+
             // Check if region is closed
             if (!request.getRegion().isClosed()) {
                 logger.warn("Region is not closed: {}", request.getRegion().getName());
