@@ -250,31 +250,6 @@ class GeoControllerWebTest {
     }
 
     @Test
-    void nextPosition_ShouldReturnSamePosition_WhenHoverAngle() throws Exception {
-        // Given
-        LngLat expectedPosition = new LngLat(-3.192473, 55.946233);
-        when(geoService.nextPosition(any(), anyDouble())).thenReturn(expectedPosition);
-
-        String requestBody = """
-        {
-            "start": {
-                "lng": -3.192473,
-                "lat": 55.946233
-            },
-            "angle": 999.0
-        }
-        """;
-
-        // When & Then
-        mockMvc.perform(post("/api/v1/nextPosition")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.lng").value(-3.192473))
-                .andExpect(jsonPath("$.lat").value(55.946233));
-    }
-
-    @Test
     void nextPosition_ShouldReturnBadRequest_WhenMissingField() throws Exception {
         String requestBody = """
         {

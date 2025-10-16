@@ -80,20 +80,6 @@ class GeoServiceUnitTest {
 
     // nextPosition
     @Test
-    void nextPosition_ShouldReturnSamePosition_WhenAngleIs999() {
-        // Given
-        LngLat start = new LngLat(-3.192473, 55.946233);
-        double angle = 999.0;
-
-        // When
-        LngLat result = geoService.nextPosition(start, angle);
-
-        // Then
-        assertThat(result.getLng()).isEqualTo(start.getLng());
-        assertThat(result.getLat()).isEqualTo(start.getLat());
-    }
-
-    @Test
     void nextPosition_ShouldCalculateNewPosition_WhenValidAngle() {
         // Given
         LngLat start = new LngLat(-3.192473, 55.946233);

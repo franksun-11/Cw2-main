@@ -336,33 +336,6 @@ class ApiIntegrationTest {
     }
 
     @Test
-    void nextPosition_ShouldReturnNewPosition_WhenHoverAngle() {
-        // Given
-        String requestBody = """
-        {
-          "start": {
-            "lng": -3.192473,
-            "lat": 55.946233
-          },
-          "angle": 999.0
-        }
-        """;
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
-
-        // When
-        ResponseEntity<String> response = restTemplate.postForEntity(
-                createUrl("/nextPosition"), entity, String.class);
-
-        // Then
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).contains("lng");
-        assertThat(response.getBody()).contains("lat");
-    }
-
-    @Test
     void nextPosition_ShouldReturnBadRequest_WhenOutOfRange() {
         // Given
         String requestBody = """

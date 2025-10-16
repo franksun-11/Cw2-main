@@ -39,11 +39,6 @@ public class GeoServiceImpl implements GeoService {
      */
     @Override
     public LngLat nextPosition(LngLat start, double angle) {
-        // 999 indicate hover
-        if (angle == 999) {
-            return new LngLat(start.getLng(), start.getLat());
-        }
-
         // change angle to radians
         double radians = Math.toRadians(angle);
 
