@@ -1,12 +1,10 @@
 package uk.ac.ed.acp.cw2;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
-import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.ac.ed.acp.cw2.pojo.LngLat;
+import uk.ac.ed.acp.cw2.dto.LngLat;
 import uk.ac.ed.acp.cw2.service.impl.GeoServiceImpl;
 
 import java.util.Arrays;

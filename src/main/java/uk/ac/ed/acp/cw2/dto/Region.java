@@ -1,10 +1,11 @@
-package uk.ac.ed.acp.cw2.pojo;
+package uk.ac.ed.acp.cw2.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import jakarta.validation.constraints.NotNull;
 import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.List;
 
 /**

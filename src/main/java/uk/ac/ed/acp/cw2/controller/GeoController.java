@@ -7,7 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import uk.ac.ed.acp.cw2.dto.IsInRegionRequest;
-import uk.ac.ed.acp.cw2.pojo.LngLat;
+import uk.ac.ed.acp.cw2.dto.LngLat;
 import uk.ac.ed.acp.cw2.dto.NextPositionRequest;
 import uk.ac.ed.acp.cw2.dto.TwoPositionsRequest;
 import uk.ac.ed.acp.cw2.service.GeoService;

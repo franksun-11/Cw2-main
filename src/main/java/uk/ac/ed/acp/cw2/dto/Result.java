@@ -1,4 +1,4 @@
-package uk.ac.ed.acp.cw2.pojo;
+package uk.ac.ed.acp.cw2.dto;
 
 import lombok.Data;
 import org.springframework.http.HttpStatus;

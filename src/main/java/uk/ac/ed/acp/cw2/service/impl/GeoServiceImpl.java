@@ -1,7 +1,7 @@
 package uk.ac.ed.acp.cw2.service.impl;
 
 import org.springframework.stereotype.Service;
-import uk.ac.ed.acp.cw2.pojo.LngLat;
+import uk.ac.ed.acp.cw2.dto.LngLat;
 import uk.ac.ed.acp.cw2.service.GeoService;
 
 import java.util.List;

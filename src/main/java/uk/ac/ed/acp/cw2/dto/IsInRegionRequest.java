@@ -6,8 +6,6 @@ import lombok.NoArgsConstructor;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import uk.ac.ed.acp.cw2.pojo.LngLat;
-import uk.ac.ed.acp.cw2.pojo.Region;
 
 /**
  * isInRegion RequestBody

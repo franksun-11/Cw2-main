@@ -10,7 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import uk.ac.ed.acp.cw2.controller.GeoController;
-import uk.ac.ed.acp.cw2.pojo.LngLat;
+import uk.ac.ed.acp.cw2.dto.LngLat;
 import uk.ac.ed.acp.cw2.service.GeoService;
 
 import static org.mockito.ArgumentMatchers.any;
