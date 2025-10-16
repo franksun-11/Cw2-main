@@ -140,9 +140,9 @@ class ApiIntegrationTest {
     }
 
 
-    // closeTo
+    // isCloseTo
     @Test
-    void closeTo_ShouldReturnTrue_WhenPositionsAreClose() {
+    void isCloseTo_ShouldReturnTrue_WhenPositionsAreClose() {
         // Given
         String requestBody = """
             {
@@ -163,7 +163,7 @@ class ApiIntegrationTest {
 
         // When
         ResponseEntity<Boolean> response = restTemplate.postForEntity(
-            createUrl("/closeTo"), entity, Boolean.class);
+            createUrl("/isCloseTo"), entity, Boolean.class);
 
         // Then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -171,7 +171,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    void closeTo_ShouldReturnFalse_WhenPositionsAreFar() {
+    void isCloseTo_ShouldReturnFalse_WhenPositionsAreFar() {
         // Given
         String requestBody = """
             {
@@ -192,7 +192,7 @@ class ApiIntegrationTest {
 
         // When
         ResponseEntity<Boolean> response = restTemplate.postForEntity(
-            createUrl("/closeTo"), entity, Boolean.class);
+            createUrl("/isCloseTo"), entity, Boolean.class);
 
         // Then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -200,7 +200,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    void closeTo_ShouldReturnBadRequest_WhenMissingField() {
+    void isCloseTo_ShouldReturnBadRequest_WhenMissingField() {
         // Given
         String requestBody = """
         {
@@ -220,14 +220,14 @@ class ApiIntegrationTest {
 
         // When
         ResponseEntity<Boolean> response = restTemplate.postForEntity(
-                createUrl("/closeTo"), entity, Boolean.class);
+                createUrl("/isCloseTo"), entity, Boolean.class);
 
         // Then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test
-    void closeTo_ShouldReturnBadRequest_WhenNegativeLatitude() {
+    void isCloseTo_ShouldReturnBadRequest_WhenNegativeLatitude() {
         // Given
         String requestBody = """
         {
@@ -248,7 +248,7 @@ class ApiIntegrationTest {
 
         // When
         ResponseEntity<Boolean> response = restTemplate.postForEntity(
-                createUrl("/closeTo"), entity, Boolean.class);
+                createUrl("/isCloseTo"), entity, Boolean.class);
 
         // Then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -793,7 +793,3 @@ class ApiIntegrationTest {
 
 
 }
-
-
-
-

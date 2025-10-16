@@ -106,9 +106,9 @@ class GeoControllerWebTest {
                 .andExpect(status().isBadRequest());
     }
 
-    // closeTo
+    // isCloseTo
     @Test
-    void closeTo_ShouldReturnTrue_WhenPositionsAreClose() throws Exception {
+    void isCloseTo_ShouldReturnTrue_WhenPositionsAreClose() throws Exception {
         // Given
         when(geoService.isCloseTo(any(), any())).thenReturn(true);
 
@@ -126,7 +126,7 @@ class GeoControllerWebTest {
             """;
 
         // When & Then
-        mockMvc.perform(post("/api/v1/closeTo")
+        mockMvc.perform(post("/api/v1/isCloseTo")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(requestBody))
                 .andExpect(status().isOk())
@@ -134,7 +134,7 @@ class GeoControllerWebTest {
     }
 
     @Test
-    void closeTo_ShouldReturnFalse_WhenPositionsAreFar() throws Exception {
+    void isCloseTo_ShouldReturnFalse_WhenPositionsAreFar() throws Exception {
         // Given
         when(geoService.isCloseTo(any(), any())).thenReturn(false);
 
@@ -152,7 +152,7 @@ class GeoControllerWebTest {
             """;
 
         // When & Then
-        mockMvc.perform(post("/api/v1/closeTo")
+        mockMvc.perform(post("/api/v1/isCloseTo")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(requestBody))
                 .andExpect(status().isOk())
@@ -160,15 +160,15 @@ class GeoControllerWebTest {
     }
 
     @Test
-    void closeTo_ShouldReturnBadRequest_WhenEmptyRequestBody() throws Exception {
-        mockMvc.perform(post("/api/v1/closeTo")
+    void isCloseTo_ShouldReturnBadRequest_WhenEmptyRequestBody() throws Exception {
+        mockMvc.perform(post("/api/v1/isCloseTo")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(""))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
-    void closeTo_ShouldReturnBadRequest_WhenMissingField() throws Exception {
+    void isCloseTo_ShouldReturnBadRequest_WhenMissingField() throws Exception {
         String requestBody = """
         {
             "position1": {
@@ -178,7 +178,7 @@ class GeoControllerWebTest {
         }
         """;
 
-        mockMvc.perform(post("/api/v1/closeTo")
+        mockMvc.perform(post("/api/v1/isCloseTo")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
                 .andExpect(status().isBadRequest());
@@ -398,5 +398,3 @@ class GeoControllerWebTest {
     }
 
 }
-
-

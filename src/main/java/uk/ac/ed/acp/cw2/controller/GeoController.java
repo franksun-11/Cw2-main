@@ -80,8 +80,8 @@ public class GeoController {
     /**
      * 4.check if two positions are close to each other
      */
-    @PostMapping("/closeTo")
-    public ResponseEntity<Boolean> closeTo(@RequestBody TwoPositionsRequest request) {
+    @PostMapping("/isCloseTo")
+    public ResponseEntity<Boolean> isCloseTo(@RequestBody TwoPositionsRequest request) {
         try {
             // Validate input
             if (request == null ||
@@ -89,7 +89,7 @@ public class GeoController {
                     request.getPosition2() == null ||
                     !request.getPosition1().isValid() ||
                     !request.getPosition2().isValid()) {
-                logger.warn("Invalid closeTo request: {}", request);
+                logger.warn("Invalid isCloseTo request: {}", request);
                 return ResponseEntity.badRequest().build(); // 400 status
             }
 
@@ -99,11 +99,11 @@ public class GeoController {
                     request.getPosition2()
             );
 
-            logger.info("CloseTo check result: {}", isClose);
+            logger.info("isCloseTo check result: {}", isClose);
             return ResponseEntity.ok(isClose); // 200 status
 
         } catch (Exception e) {
-            logger.error("Error checking closeTo", e);
+            logger.error("Error checking isCloseTo", e);
             return ResponseEntity.badRequest().build(); // 400 status
         }
     }

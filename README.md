@@ -419,7 +419,7 @@ REM 3. Test distance calculation
 curl -X POST http://localhost:8080/api/v1/distanceTo -H "Content-Type: application/json" -d "{\"position1\": {\"lng\": -3.186874, \"lat\": 55.944494}, \"position2\": {\"lng\": -3.192473, \"lat\": 55.946233}}"
 
 REM 4. Test proximity check
-curl -X POST http://localhost:8080/api/v1/closeTo -H "Content-Type: application/json" -d "{\"position1\": {\"lng\": -3.186874, \"lat\": 55.944494}, \"position2\": {\"lng\": -3.186900, \"lat\": 55.944500}}"
+curl -X POST http://localhost:8080/api/v1/isCloseTo -H "Content-Type: application/json" -d "{\"position1\": {\"lng\": -3.186874, \"lat\": 55.944494}, \"position2\": {\"lng\": -3.186900, \"lat\": 55.944500}}"
 
 REM 5. Test next position
 curl -X POST http://localhost:8080/api/v1/nextPosition -H "Content-Type: application/json" -d "{\"start\": {\"lng\": -3.186874, \"lat\": 55.944494}, \"angle\": 90.0}"
