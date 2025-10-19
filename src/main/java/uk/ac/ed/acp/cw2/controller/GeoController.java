@@ -131,7 +131,7 @@ public class GeoController {
             }
 
             // Additionally check if angle is in valid range (0-360)
-            if (angle < 0.0 || angle > 360.0) {
+            if (angle < 0.0 || angle >= 360.0) {
                 logger.warn("Invalid angle value: {}. Angle must be between 0 and 360", angle);
                 return ResponseEntity.badRequest().build(); // 400 status
             }

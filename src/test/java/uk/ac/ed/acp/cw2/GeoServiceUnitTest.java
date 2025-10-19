@@ -75,6 +75,19 @@ class GeoServiceUnitTest {
         assertFalse(result);
     }
 
+    @Test
+    void isCloseTo_ShouldReturnFalse_WhenDistanceEqualToThreshold() {
+        // Given
+        LngLat pos1 = new LngLat(-3.192473, 55.946233);
+        LngLat pos2 = new LngLat(-3.192473 - 0.00015, 55.946233); // exactly 0.00015
+
+        // When
+        boolean result = geoService.isCloseTo(pos1, pos2);
+
+        // Then
+        assertFalse(result);
+    }
+
 
     // nextPosition
     @Test
@@ -106,7 +119,6 @@ class GeoServiceUnitTest {
         assertThat(result.getLng()).isGreaterThan(start.getLng());
         assertThat(result.getLat()).isCloseTo(start.getLat(), within(0.000001));
     }
-
 
 
     // isInRegion

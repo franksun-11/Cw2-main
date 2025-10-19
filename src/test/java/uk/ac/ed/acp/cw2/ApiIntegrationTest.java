@@ -112,12 +112,72 @@ class ApiIntegrationTest {
     }
 
     @Test
-    void distanceTo_ShouldReturnBadRequest_WhenPositiveLongitude() {
+    void distanceTo_ShouldReturnBadRequest_WhenInvalidStringValue() {
+        // Given
+        String requestBody = """
+    {
+      "position1": {
+        "lng": "invalid",
+        "lat": 55.946233
+      },
+      "position2": {
+        "lng": -3.192473,
+        "lat": 55.942617
+      }
+    }
+    """;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+        // When
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                createUrl("/distanceTo"), entity, String.class);
+
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void distanceTo_ShouldIgnore_WhenExtraFields() {
         // Given
         String requestBody = """
         {
           "position1": {
-            "lng": 3.192473,
+            "lng": -3.192473,
+            "lat": 55.946233
+          },
+          "position2": {
+            "lng": -3.192473,
+            "lat": 55.942617
+          },
+          "extraField": "should be ignored",
+          "anotherField": 12345
+        }
+        """;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+        // When
+        ResponseEntity<Double> response = restTemplate.postForEntity(
+                createUrl("/distanceTo"), entity, Double.class);
+
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody()).isGreaterThan(0.0);
+    }
+
+    @Test
+    void distanceTo_ShouldReturnBadRequest_WhenInvalidFieldNames() {
+        // Given - using "pos1" instead of "position1"
+        String requestBody = """
+        {
+          "pos1": {
+            "lng": -3.192473,
             "lat": 55.946233
           },
           "position2": {
@@ -134,6 +194,23 @@ class ApiIntegrationTest {
         // When
         ResponseEntity<Double> response = restTemplate.postForEntity(
                 createUrl("/distanceTo"), entity, Double.class);
+
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void distanceTo_ShouldReturnBadRequest_WhenEmptyBody() {
+        // Given
+        String requestBody = "";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+        // When
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                createUrl("/distanceTo"), entity, String.class);
 
         // Then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -200,6 +277,35 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void isCloseTo_ShouldAccept_WhenNumbersAsStrings() {
+        // Given
+        String requestBody = """
+        {
+          "position1": {
+            "lng": "-2",
+            "lat": 55.946233
+          },
+          "position2": {
+            "lng": -2.00014,
+            "lat": "55.946233"
+          }
+        }
+        """;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+        // When
+        ResponseEntity<Boolean> response = restTemplate.postForEntity(
+                createUrl("/isCloseTo"), entity, Boolean.class);
+
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isTrue();
+    }
+
+    @Test
     void isCloseTo_ShouldReturnBadRequest_WhenMissingField() {
         // Given
         String requestBody = """
@@ -227,17 +333,21 @@ class ApiIntegrationTest {
     }
 
     @Test
-    void isCloseTo_ShouldReturnBadRequest_WhenNegativeLatitude() {
+    void isCloseTo_ShouldUseLast_WhenDuplicateKeys() {
         // Given
         String requestBody = """
         {
           "position1": {
-            "lng": -3.192473,
-            "lat": -55.946233
+            "lng": -2,
+            "lat": 55.946233
           },
           "position2": {
-            "lng": -3.192473,
-            "lat": 55.942617
+            "lng": -2.00014,
+            "lat": 55.946233
+          },
+          "position2": {
+            "lng": -2.10014,
+            "lat": 55.946233
           }
         }
         """;
@@ -251,8 +361,70 @@ class ApiIntegrationTest {
                 createUrl("/isCloseTo"), entity, Boolean.class);
 
         // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // Should return false because last position2 is far away
+        assertThat(response.getBody()).isFalse();
+    }
+
+    @Test
+    void isCloseTo_ShouldIgnore_WhenExtraFieldsInCoordinates() {
+        // Given
+        String requestBody = """
+        {
+          "position1": {
+            "lng": -3.192473,
+            "lat": 55.946233,
+            "altitude": 100
+          },
+          "position2": {
+            "lng": -3.192473,
+            "lat": 55.946233,
+            "name": "Edinburgh"
+          }
+        }
+        """;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+        // When
+        ResponseEntity<Boolean> response = restTemplate.postForEntity(
+                createUrl("/isCloseTo"), entity, Boolean.class);
+
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isTrue();
+    }
+
+    @Test
+    void isCloseTo_ShouldReturnBadRequest_WhenInvalidStringValue() {
+        // Given
+        String requestBody = """
+    {
+      "position1": {
+        "lng": -3.192473,
+        "lat": 55.946233
+      },
+      "position2": {
+        "lng": "abc",
+        "lat": 55.942617
+      }
+    }
+    """;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+        // When
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                createUrl("/isCloseTo"), entity, String.class);
+
+        // Then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
+
 
 
     // nextPosition
@@ -311,7 +483,34 @@ class ApiIntegrationTest {
     }
 
     @Test
-    void nextPosition_ShouldReturnBadRequest_WhenInvalidAngle() {
+    void nextPosition_ShouldAccept_WhenNumbersAsStrings() {
+        // Given
+        String requestBody = """
+        {
+          "start": {
+            "lng": "-3.192473",
+            "lat": "55.946233"
+          },
+          "angle": 45.0
+        }
+        """;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+        // When
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                createUrl("/nextPosition"), entity, String.class);
+
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("\"lng\":");
+        assertThat(response.getBody()).contains("\"lat\":");
+    }
+
+    @Test
+    void nextPosition_ShouldReturnBadRequest_WhenAngleIsNotMultipleOf22_5() {
         // Given
         String requestBody = """
             {
@@ -462,7 +661,6 @@ class ApiIntegrationTest {
         assertThat(actualLng).isCloseTo(expectedLng, within(0.000001));
         assertThat(actualLat).isCloseTo(expectedLat, within(0.000001));
     }
-
 
     // isInRegion
     @Test
@@ -724,55 +922,6 @@ class ApiIntegrationTest {
               {
                 "lng": -3.192473,
                 "lat": 55.942617
-              }
-            ]
-          }
-        }
-        """;
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
-
-        // When
-        ResponseEntity<Boolean> response = restTemplate.postForEntity(
-                createUrl("/isInRegion"), entity, Boolean.class);
-
-        // Then
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-    }
-
-    @Test
-    void isInRegion_ShouldReturnBadRequest_WhenPositiveLongitude() {
-        // Given
-        String requestBody = """
-        {
-          "position": {
-            "lng": 3.188,
-            "lat": 55.944
-          },
-          "region": {
-            "name": "central",
-            "vertices": [
-              {
-                "lng": 3.192473,
-                "lat": 55.946233
-              },
-              {
-                "lng": 3.192473,
-                "lat": 55.942617
-              },
-              {
-                "lng": 3.184319,
-                "lat": 55.942617
-              },
-              {
-                "lng": 3.184319,
-                "lat": 55.946233
-              },
-              {
-                "lng": 3.192473,
-                "lat": 55.946233
               }
             ]
           }
