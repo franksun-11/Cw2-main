@@ -2,6 +2,7 @@ package uk.ac.ed.acp.cw2.controller;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import uk.ac.ed.acp.cw2.dto.Drone;
@@ -15,19 +16,16 @@ public class DroneController {
 
     private static final Logger logger = LoggerFactory.getLogger(DroneController.class);
 
-    private final DroneQueryService droneQueryService;
+    @Autowired
+    private DroneQueryService droneQueryService;
 
-    public DroneController(DroneQueryService droneQueryService) {
-        this.droneQueryService = droneQueryService;
-    }
 
     /**
      * 2a) GET /api/v1/dronesWithCooling/{state}
      * return a list of drone IDs that have cooling state matching the path variable
      */
     @GetMapping("/dronesWithCooling/{state}")
-    public ResponseEntity<List<Integer>> getDronesWithCooling(
-            @PathVariable boolean state) {
+    public ResponseEntity<List<Integer>> getDronesWithCooling(@PathVariable boolean state) {
         List<Integer> droneIds = droneQueryService.getDronesWithCooling(state);
         logger.info("Returning {} drones with cooling state {}", droneIds.size(), state);
         return ResponseEntity.ok(droneIds);
@@ -46,5 +44,22 @@ public class DroneController {
         }
         logger.info("Returning drone details for ID {}", id);
         return ResponseEntity.ok(drone);
+    }
+
+    /**
+     * 3a) GET /api/v1/queryAsPath/{attributeName}/{attributeValue}
+     * query drones by attribute name and value, returning their IDs as a path
+     */
+    @GetMapping("/queryAsPath/{attributeName}/{attributeValue}")
+    public ResponseEntity<List<Integer>> queryDronesByAttribute(@PathVariable String attributeName, @PathVariable String attributeValue) {
+        logger.info("Request: GET /queryAsPath/{}/{}", attributeName, attributeValue);
+
+        List<Integer> droneIds = droneQueryService.queryAsPath(
+                attributeName, attributeValue);
+
+        logger.info("Found {} drones matching {}={}",
+                droneIds.size(), attributeName, attributeValue);
+
+        return ResponseEntity.ok(droneIds);
     }
 }

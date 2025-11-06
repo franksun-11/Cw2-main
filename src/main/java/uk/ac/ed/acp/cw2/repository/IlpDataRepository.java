@@ -8,9 +8,14 @@ import uk.ac.ed.acp.cw2.dto.DroneForServicePoint;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Repository for fetching data from the ILP REST endpoint
+ */
 @Repository
 public class IlpDataRepository {
-
+    /**
+     * Rest template for making HTTP requests
+     */
     private final RestTemplate restTemplate;
     private final String ilpEndpoint;
 
@@ -20,7 +25,7 @@ public class IlpDataRepository {
     }
 
     /**
-     * 获取所有无人机数据
+     * get all drones from ILP endpoint
      */
     public List<Drone> getAllDrones() {
         Drone[] drones = restTemplate.getForObject(
@@ -31,7 +36,7 @@ public class IlpDataRepository {
     }
 
     /**
-     * 获取服务点的无人机分配信息
+     * get drones availability for service points from ILP endpoint
      */
     public List<DroneForServicePoint> getDronesForServicePoints() {
         DroneForServicePoint[] data = restTemplate.getForObject(

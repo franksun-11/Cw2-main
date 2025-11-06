@@ -24,4 +24,10 @@ public interface DroneQueryService {
      * @return The drone object if found, null otherwise
      */
     Drone getDroneById(Integer id);
+
+    /**
+     * Query drones by attribute name and value, returning their IDs as a path
+     * @return
+     */
+    List<Integer> queryAsPath(String attributeName, String attributeValue);
 }
