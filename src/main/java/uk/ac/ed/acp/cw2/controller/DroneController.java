@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import uk.ac.ed.acp.cw2.dto.Drone;
+import uk.ac.ed.acp.cw2.dto.QueryCondition;
 import uk.ac.ed.acp.cw2.service.DroneQueryService;
 
 import java.util.List;
@@ -61,6 +62,24 @@ public class DroneController {
 
         logger.info("Found {} drones matching {}={}",
                 droneIds.size(), attributeName, attributeValue);
+
+        return ResponseEntity.ok(droneIds);
+    }
+
+    /**
+     * 3b) POST /api/v1/query
+     * query drones by multiple conditions
+     */
+    @PostMapping("/query")
+    public ResponseEntity<List<Integer>> queryDronesByConditions(@RequestBody List<QueryCondition> conditions) {
+
+        logger.info("Request: POST /query with {} conditions", conditions.size());
+        logger.debug("Conditions: {}", conditions);
+
+        List<Integer> droneIds = droneQueryService.queryByConditions(conditions);
+
+        logger.info("Found {} drones matching all conditions", droneIds.size());
+        logger.debug("Matching drone IDs: {}", droneIds);
 
         return ResponseEntity.ok(droneIds);
     }

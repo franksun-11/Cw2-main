@@ -2,6 +2,7 @@ package uk.ac.ed.acp.cw2.service;
 
 import org.springframework.stereotype.Service;
 import uk.ac.ed.acp.cw2.dto.Drone;
+import uk.ac.ed.acp.cw2.dto.QueryCondition;
 
 import java.util.List;
 
@@ -30,4 +31,11 @@ public interface DroneQueryService {
      * @return
      */
     List<Integer> queryAsPath(String attributeName, String attributeValue);
+
+    /**
+     * Query drones by multiple conditions
+     * @param conditions
+     * @return
+     */
+    List<Integer> queryByConditions(List<QueryCondition> conditions);
 }
