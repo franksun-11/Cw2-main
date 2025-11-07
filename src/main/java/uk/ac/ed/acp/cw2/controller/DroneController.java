@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import uk.ac.ed.acp.cw2.dto.Drone;
+import uk.ac.ed.acp.cw2.dto.MedDispatchRec;
 import uk.ac.ed.acp.cw2.dto.QueryCondition;
 import uk.ac.ed.acp.cw2.service.DroneQueryService;
 
@@ -80,6 +81,23 @@ public class DroneController {
 
         logger.info("Found {} drones matching all conditions", droneIds.size());
         logger.debug("Matching drone IDs: {}", droneIds);
+
+        return ResponseEntity.ok(droneIds);
+    }
+
+    /**
+     * 4) POST /api/v1/queryAvailableDrones
+     * query drones that are available for dispatching
+     */
+    @PostMapping("/queryAvailableDrones")
+    public ResponseEntity<List<Integer>> queryAvailableDrones(@RequestBody List<MedDispatchRec> dispatches) {
+        logger.info("Request: POST /queryAvailableDrones with {} dispatches", dispatches.size());
+        logger.debug("Dispatches: {}", dispatches);
+
+        List<Integer> droneIds = droneQueryService.queryAvailableDrones(dispatches);
+
+        logger.info("Found {} available drones for the given dispatches", droneIds.size());
+        logger.debug("Available drone IDs: {}", droneIds);
 
         return ResponseEntity.ok(droneIds);
     }

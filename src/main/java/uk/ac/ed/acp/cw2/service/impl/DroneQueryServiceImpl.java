@@ -5,12 +5,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
-import uk.ac.ed.acp.cw2.dto.Drone;
-import uk.ac.ed.acp.cw2.dto.QueryCondition;
+import uk.ac.ed.acp.cw2.dto.*;
 import uk.ac.ed.acp.cw2.service.DroneQueryService;
 
+import javax.print.attribute.IntegerSyntax;
 import java.lang.reflect.Field;
+import java.sql.Time;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -29,10 +34,40 @@ public class DroneQueryServiceImpl implements DroneQueryService {
      * Fetch all drones from the ILP REST service
      */
     private List<Drone> fetchAllDrones() {
-        logger.info("Fetching all drones from ILP REST service: {}/drones", ilpEndpoint);
         Drone[] drones = restTemplate.getForObject(ilpEndpoint + "/drones", Drone[].class);
         return drones != null ? Arrays.asList(drones) : List.of();
     }
+
+    /**
+     * Fetch drone availability at service points
+     */
+    private List<DroneServicePointAvailability> fetchDroneAvailability() {
+        DroneServicePointAvailability[] availability = restTemplate.getForObject(
+                ilpEndpoint + "/drones-for-service-points",
+                DroneServicePointAvailability[].class);
+        return availability != null ? Arrays.asList(availability) : List.of();
+    }
+
+    /**
+     * Fetch all service points
+     */
+    private List<ServicePoint> fetchAllServicePoints() {
+        ServicePoint[] servicePoints = restTemplate.getForObject(
+                ilpEndpoint + "/service-points",
+                ServicePoint[].class);
+        return servicePoints != null ? Arrays.asList(servicePoints) : List.of();
+    }
+
+    /**
+     * Fetch all restricted areas
+     */
+    private List<RestrictedArea> fetchRestrictedAreas() {
+        RestrictedArea[] restrictedAreas = restTemplate.getForObject(
+                ilpEndpoint + "/restricted-areas",
+                RestrictedArea[].class);
+        return restrictedAreas != null ? Arrays.asList(restrictedAreas) : List.of();
+    }
+
 
     @Override
     public List<Integer> getDronesWithCooling(boolean coolingRequired) {
@@ -92,6 +127,34 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public List<Integer> queryAvailableDrones(List<MedDispatchRec> dispatches) {
+        logger.info("Querying available drones for dispatches: {}", dispatches);
+
+        // validate input
+        if (dispatches == null || dispatches.isEmpty()) {
+            logger.warn("No dispatches provided for availability query");
+            return List.of();
+        }
+
+        // fetch data
+        List<Drone> drones = fetchAllDrones();
+        List<DroneServicePointAvailability> droneAvailability = fetchDroneAvailability();
+        List<ServicePoint> servicePoints = fetchAllServicePoints();
+        List<RestrictedArea> restrictedAreas = fetchRestrictedAreas();
+
+        List<Integer> availableDroneIds = drones.stream()
+                .filter(drone -> fulfillAllDispatches(drone, dispatches, droneAvailability, restrictedAreas))
+                .map(Drone::getId)
+                .toList();
+
+        logger.info("Found {} drones that can fulfill all {} dispatches",
+                availableDroneIds.size(), dispatches.size());
+        logger.debug("Available drone IDs: {}", availableDroneIds);
+
+        return availableDroneIds;
+    }
+
     /**
      * Check if a single attribute matches the given value
      */
@@ -123,6 +186,187 @@ public class DroneQueryServiceImpl implements DroneQueryService {
     private boolean matchAllConditions(Drone.Capability capability, List<QueryCondition> conditions) {
         return conditions.stream()
                 .allMatch(condition -> matchesCondition(capability, condition));
+    }
+
+    /**
+     * Check if a drone can fulfill all dispatches
+     */
+    private boolean fulfillAllDispatches(Drone drone, List<MedDispatchRec> dispatches, List<DroneServicePointAvailability> droneAvailability, List<RestrictedArea> restrictedAreas) {
+        if (drone.getCapability() == null) {
+            logger.warn("Drone {} has no capability", drone.getName());
+            return false;
+        }
+        return dispatches.stream()
+                .allMatch(dispatch -> fulfillDispatch(drone, dispatch, droneAvailability, restrictedAreas));
+    }
+
+    /**
+     * Check if a drone can fulfill a single dispatch
+     */
+    private boolean fulfillDispatch(Drone drone, MedDispatchRec dispatch, List<DroneServicePointAvailability> droneAvailability, List<RestrictedArea> restrictedAreas) {
+        Drone.Capability capability = drone.getCapability();
+        MedDispatchRec.Requirements requirements = dispatch.getRequirements();
+
+        // 1.check capacity requirement
+        if (requirements.getCapacity() != null) {
+            if (capability.getCapacity() == null ||
+                    capability.getCapacity() < requirements.getCapacity()) {
+                logger.debug("Drone {} cannot fulfill capacity requirement: {} < {}",
+                        drone.getName(), capability.getCapacity(), requirements.getCapacity());
+                return false;
+            }
+        }
+
+        // 2.check cooling requirement
+        if (Boolean.TRUE.equals(requirements.getCooling())) {
+            if (!Boolean.TRUE.equals(capability.getCooling())) {
+                logger.debug("Drone {} cannot fulfill cooling requirement", drone.getName());
+                return false;
+            }
+        }
+
+        // 3. Check heating requirement
+        if (Boolean.TRUE.equals(requirements.getHeating())) {
+            if (!Boolean.TRUE.equals(capability.getHeating())) {
+                logger.debug("Drone {} does not have heating capability", drone.getId());
+                return false;
+            }
+        }
+
+        // 4. Check cost requirement
+        if (requirements.getMaxCost() != null) {
+            double totalCost = calculateMaxCost(capability);
+            if (totalCost > requirements.getMaxCost()) {
+                logger.debug("Drone {} total cost {} > max cost {}",
+                        drone.getId(), totalCost, requirements.getMaxCost());
+                return false;
+            }
+        }
+
+        // 5. Check time availability
+        if (dispatch.getDate() != null && dispatch.getTime() != null) {
+            if (!isAvailableAtTime(drone.getId(), dispatch.getDate(), dispatch.getTime(), droneAvailability)) {
+                logger.debug("Drone {} not available on {} at {}",
+                        drone.getId(), dispatch.getDate(), dispatch.getTime());
+                return false;
+            }
+        }
+
+        // 6. Check delivery location is not in restricted area
+        if (dispatch.getDelivery() != null) {
+            if (isInRestrictedArea(dispatch.getDelivery(), restrictedAreas)) {
+                logger.debug("Delivery location ({}, {}) is in restricted area",
+                        dispatch.getDelivery().getLng(), dispatch.getDelivery().getLat());
+                return false;
+            }
+        }
+
+        logger.debug("Drone {} can fulfill dispatch {}", drone.getId(), dispatch.getId());
+        return true;
+    }
+
+    /**
+     * Check if a drone is available at a specific date and time
+     */
+    private boolean isAvailableAtTime(Integer droneId, LocalDate date, LocalTime time, List<DroneServicePointAvailability> droneAvailability) {
+        // Get day of week from date
+        DayOfWeek dayOfWeek = date.getDayOfWeek();
+        String dayOfWeekStr = dayOfWeek.toString();
+
+        // Search all service point for this drone's availability
+        for (DroneServicePointAvailability sp : droneAvailability) {
+            if (sp.getDrones() == null) continue;
+
+            // Find this drone in the service point
+            for (DroneServicePointAvailability.DroneAvailability da : sp.getDrones()) {
+                // check if this drone is the one we are looking for
+                if (!String.valueOf(droneId).equals(da.getId())) continue;
+                // check availability on this day of week
+                if (da.getAvailability() == null) continue;
+
+                for (DroneServicePointAvailability.TimeSlot ts : da.getAvailability()) {
+                    if (!dayOfWeekStr.equalsIgnoreCase(ts.getDayOfWeek())) continue;
+
+                    // Check if time falls within the time slot
+                    LocalTime from = ts.getFrom();
+                    LocalTime until = ts.getUntil();
+
+                    // check if time is within from-until
+                    if (from != null && until != null) {
+                        if (!time.isBefore(from) && !time.isAfter(until)) {
+                            logger.debug("Drone {} is available on {} from {} to {}",
+                                    droneId, dayOfWeekStr, from, until);
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if a location is in any restricted area
+     */
+    private boolean isInRestrictedArea(MedDispatchRec.Delivery delivery, List<RestrictedArea> restrictedAreas) {
+        if (delivery.getLng() == null || delivery.getLat() == null) {
+            return false;
+        }
+
+        for (RestrictedArea area : restrictedAreas) {
+            if (isPointInPolygon(delivery.getLng(), delivery.getLat(), area.getVertices())) {
+                logger.debug("Point ({}, {}) is inside restricted area: {}",
+                        delivery.getLng(), delivery.getLat(), area.getName());
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Ray casting algorithm to check if a point is inside a polygon
+     */
+    private boolean isPointInPolygon(double lng, double lat, List<RestrictedArea.Vertex> vertices) {
+        if (vertices == null || vertices.size() < 3) {
+            return false;
+        }
+
+        boolean inside = false;
+        int n = vertices.size();
+
+        for (int i = 0, j = n - 1; i < n; j = i++) {
+            RestrictedArea.Vertex vi = vertices.get(i);
+            RestrictedArea.Vertex vj = vertices.get(j);
+
+            if (vi.getLng() == null || vi.getLat() == null ||
+                    vj.getLng() == null || vj.getLat() == null) {
+                continue;
+            }
+
+            double xi = vi.getLng(), yi = vi.getLat();
+            double xj = vj.getLng(), yj = vj.getLat();
+
+            boolean intersect = ((yi > lat) != (yj > lat)) &&
+                    (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+
+            if (intersect) {
+                inside = !inside;
+            }
+        }
+
+        return inside;
+    }
+
+    /**
+     * Calculate the maximum cost of a drone
+     */
+    private double calculateMaxCost(Drone.Capability capability) {
+        double initialCost = capability.getCostInitial() != null ? capability.getCostInitial() : 0.0;
+        double perMove = capability.getCostPerMove() != null ? capability.getCostPerMove() : 0.0;
+        double finalCost = capability.getCostFinal() != null ? capability.getCostFinal() : 0.0;
+
+        return initialCost + perMove + finalCost;
     }
 
     /**

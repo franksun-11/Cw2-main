@@ -27,7 +27,9 @@ management:
 server:
   port: 8080
 
-
+logging:
+  level:
+    uk.ac.ed.acp.cw2: DEBUG
 
 ilp:
   service:
