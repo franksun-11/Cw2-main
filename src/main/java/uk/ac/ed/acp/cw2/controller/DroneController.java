@@ -26,6 +26,7 @@ public class DroneController {
      */
     @GetMapping("/dronesWithCooling/{state}")
     public ResponseEntity<List<Integer>> getDronesWithCooling(@PathVariable boolean state) {
+        logger.info("Request: GET /dronesWithCooling/{}", state);
         List<Integer> droneIds = droneQueryService.getDronesWithCooling(state);
         logger.info("Returning {} drones with cooling state {}", droneIds.size(), state);
         return ResponseEntity.ok(droneIds);
@@ -37,6 +38,7 @@ public class DroneController {
      */
     @GetMapping("/droneDetails/{id}")
     public ResponseEntity<Drone> getDroneDetails(@PathVariable Integer id) {
+        logger.info("Request: GET /droneDetails/{}", id);
         Drone drone = droneQueryService.getDroneById(id);
         if (drone == null) {
             logger.warn("Drone with ID {} not found", id);
