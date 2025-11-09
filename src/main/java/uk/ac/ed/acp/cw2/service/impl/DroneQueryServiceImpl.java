@@ -14,9 +14,7 @@ import java.sql.Time;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -153,6 +151,89 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         logger.debug("Available drone IDs: {}", availableDroneIds);
 
         return availableDroneIds;
+    }
+
+    @Override
+    public DeliveryPathResponse calcDeliveryPath(List<MedDispatchRec> dispatches) {
+        logger.info("Calculating delivery path for dispatches: {}", dispatches);
+
+        // Validate input
+        if (dispatches == null || dispatches.isEmpty()) {
+            logger.warn("No dispatches provided for path calculation");
+            return createEmptyResponse();
+        }
+        // fetch all necessary data
+        List<Drone> allDrones = fetchAllDrones();
+        List<DroneServicePointAvailability> droneAvailability = fetchDroneAvailability();
+        List<ServicePoint> servicePoints = fetchAllServicePoints();
+        List<RestrictedArea> restrictedAreas = fetchRestrictedAreas();
+
+        logger.info("Fetched {} drones, {} service points, {} restricted areas",
+                allDrones.size(), servicePoints.size(), restrictedAreas.size());
+
+        // find available drones
+        List<Integer> availableDroneIds = queryAvailableDrones(dispatches);
+
+        if (availableDroneIds.isEmpty()) {
+            logger.warn("No available drones for dispatches: {}", dispatches);
+            return createEmptyResponse();
+        }
+        logger.info("Found {} available drones ", availableDroneIds.size());
+
+        try {
+            // try each service point to find best path
+            DeliveryPathResponse bestResponse = null;
+            double bestCost = Double.MAX_VALUE;
+
+            for (ServicePoint sp : servicePoints) {
+                // Get drones available at this service point
+                List<Integer> droneIdsAtSp = getDroneIdsAtServicePoint(sp.getId(), droneAvailability, availableDroneIds);
+
+                if (droneIdsAtSp.isEmpty()) {
+                    logger.debug("No available drones at service point {}", sp.getId());
+                    continue;
+                }
+
+                // try each available drone at this service point
+                for (Integer droneId : droneIdsAtSp) {
+                    Drone drone = allDrones.stream()
+                            .filter(d -> d.getId().equals(droneId))
+                            .findFirst()
+                            .orElse(null);
+
+                    if (drone == null) {
+                        logger.warn("Drone {} not found in allDrones list", droneId);
+                        continue;
+                    }
+
+                    logger.debug("Calculating path for drone {} at service point {}",
+                            drone.getId(), sp.getName());
+
+                    // calculate delivery path for this drone
+                    DeliveryPathResponse response = calculatePathForDrone(drone, sp, dispatches, restrictedAreas);
+
+                    // select the solution with the lowest cost
+                    if (response != null && response.getTotalCost() < bestCost) {
+                        bestCost = response.getTotalCost();
+                        bestResponse = response;
+                        logger.info("New best path found with cost {} using drone {} at service point {}", bestCost, drone.getId(), sp.getName());
+                    }
+                }
+            }
+
+            if (bestResponse == null) {
+                logger.warn("No valid delivery path found");
+                return createEmptyResponse();
+            }
+
+            logger.info("Delivery path calculation completed. Total cost: {}, Total moves: {}",
+                    bestResponse.getTotalCost(), bestResponse.getTotalMoves());
+            return bestResponse;
+
+        } catch (Exception e) {
+            logger.error("Error calculating delivery path", e);
+            return createEmptyResponse();
+        }
     }
 
     /**
@@ -510,5 +591,738 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         // Unknown type - use string comparison as fallback
         logger.warn("Unknown type for value: {}, using string comparison", actualValue.getClass());
         return actualValue.toString().equals(expectedValue);
+    }
+
+    /**
+     * Create an empty response when no valid path is found
+     */
+    private DeliveryPathResponse createEmptyResponse() {
+        DeliveryPathResponse response = new DeliveryPathResponse();
+        response.setTotalCost(0.0);
+        response.setTotalMoves(0);
+        response.setDronePaths(List.of());
+        return response;
+    }
+
+    /**
+     * Get list of drone IDs available at a specific service point
+     * Filters by both service point availability and overall availability
+     */
+    private List<Integer> getDroneIdsAtServicePoint(
+            Integer servicePointId,
+            List<DroneServicePointAvailability> droneAvailability,
+            List<Integer> availableDroneIds) {
+
+        return droneAvailability.stream()
+                .filter(dsp -> dsp.getServicePointId().equals(servicePointId))
+                .flatMap(dsp -> dsp.getDrones().stream())
+                .map(d -> Integer.parseInt(d.getId()))
+                .filter(availableDroneIds::contains)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private DeliveryPathResponse calculatePathForDrone(Drone drone,
+            ServicePoint servicePoint,
+            List<MedDispatchRec> dispatches,
+            List<RestrictedArea> restrictedAreas) {
+        logger.info("Calculating path for drone {} from service point {}", drone.getId(), servicePoint.getName());
+
+        // Group dispatches by date
+        Map<LocalDate, List<MedDispatchRec>> dispatchByDate = dispatches.stream()
+                .collect(Collectors.groupingBy(MedDispatchRec::getDate));
+
+        List<DeliveryPathResponse.Delivery> allDeliveries = new ArrayList<>();
+        int totalMoves = 0;
+
+        // Process each day's dispatches separately
+        for (Map.Entry<LocalDate, List<MedDispatchRec>> entry : dispatchByDate.entrySet()) {
+            LocalDate date = entry.getKey();
+            List<MedDispatchRec> dailyDispatches = entry.getValue();
+
+            logger.debug("Processing {} dispatches for date {}", dailyDispatches.size(), date);
+
+            // optimise delivery order
+            List<MedDispatchRec> optimiseOrder = optimizeDeliveryOrder(servicePoint, dailyDispatches);
+
+            // Generate flight path for this day's deliveries
+            DeliveryPathResponse.LngLat currentLocation = new DeliveryPathResponse.LngLat(servicePoint.getLocation().getLng(), servicePoint.getLocation().getLat());
+
+            for (int i = 0; i < optimiseOrder.size(); i++) {
+                MedDispatchRec dispatch = optimiseOrder.get(i);
+                DeliveryPathResponse.LngLat targetLocation = new DeliveryPathResponse.LngLat(
+                        dispatch.getDelivery().getLng(), dispatch.getDelivery().getLat());
+
+                // Generate flight path from currentLocation to targetLocation
+                List<DeliveryPathResponse.LngLat> path = generateFlightPath(currentLocation, targetLocation, restrictedAreas);
+
+                if (path == null) {
+                    logger.warn("Cannot generate path for delivery {}", dispatch.getId());
+                    return null;
+                }
+
+                // Add hover point (duplicate coordinate indicates delivery)
+                path.add(new DeliveryPathResponse.LngLat(
+                        targetLocation.getLng(), targetLocation.getLat()));
+
+                // If this is the last delivery of the day, add return path to service point
+                if (i == optimiseOrder.size() - 1) {
+                    DeliveryPathResponse.LngLat servicePointLocation =
+                            new DeliveryPathResponse.LngLat(
+                                    servicePoint.getLocation().getLng(),
+                                    servicePoint.getLocation().getLat()
+                            );
+
+                    List<DeliveryPathResponse.LngLat> returnPath = generateFlightPath(
+                            targetLocation, servicePointLocation, restrictedAreas);
+
+                    if (returnPath == null) {
+                        logger.warn("Cannot generate return path to service point");
+                        return null;
+                    }
+
+                    // Add return path (skip first point to avoid duplication)
+                    if (returnPath.size() > 1) {
+                        path.addAll(returnPath.subList(1, returnPath.size()));
+                    }
+                }
+
+                // calculate moves
+                int movesForThisDelivery = path.size() - 1; // exclude hover point
+                totalMoves += movesForThisDelivery;
+
+                // create Delivery object
+                DeliveryPathResponse.Delivery delivery = new DeliveryPathResponse.Delivery();
+                delivery.setDeliveryId(dispatch.getId());
+                delivery.setFlightPath(path);
+                allDeliveries.add(delivery);
+
+                currentLocation = targetLocation;
+
+                logger.debug("Generated path for delivery {} with {} moves",
+                        dispatch.getId(), movesForThisDelivery);
+            }
+        }
+
+        // Validate total moves against drone's limit
+        Integer maxMoves = drone.getCapability().getMaxMoves();
+        if (maxMoves != null && totalMoves > maxMoves) {
+            logger.warn("Total moves ({}) exceeds drone's limit ({})", totalMoves, maxMoves);
+            return null;
+        }
+
+        // calculate total cost
+        double totalCost = calculateTotalCost(drone.getCapability(), totalMoves);
+
+        // build response
+        DeliveryPathResponse.DronePath dronePath = new DeliveryPathResponse.DronePath();
+        dronePath.setDroneId(drone.getId());
+        dronePath.setDeliveries(allDeliveries);
+
+        DeliveryPathResponse response = new DeliveryPathResponse();
+        response.setTotalCost(totalCost);
+        response.setTotalMoves(totalMoves);
+        response.setDronePaths(Arrays.asList(dronePath));
+
+        logger.info("Path calculation completed - Cost: {}, Moves: {}, Deliveries: {}",
+                totalCost, totalMoves, allDeliveries.size());
+
+        return response;
+    }
+
+    /**
+     * Optimize delivery order using TSP algorithm
+     * Uses Dynamic Programming for small sets (<=12) and Greedy for larger sets
+     */
+    private List<MedDispatchRec> optimizeDeliveryOrder(ServicePoint startPoint, List<MedDispatchRec> dispatches) {
+
+        int n = dispatches.size();
+
+        if (n == 0) {
+            return List.of();
+        }
+
+        if (n == 1) {
+            return dispatches;
+        }
+
+        // Use Dynamic Programming for small sets (more accurate)
+        if (n <= 12) {
+            logger.debug("Using DP algorithm for {} dispatches", n);
+            return optimizeDeliveryOrder_DP(startPoint, dispatches);
+        }
+
+        // Use Greedy algorithm for larger sets (faster)
+        logger.debug("Using Greedy algorithm for {} dispatches", n);
+        return optimizeDeliveryOrder_Greedy(startPoint, dispatches);
+    }
+
+    /**
+     * Optimize delivery order using Greedy algorithm
+     */
+    private List<MedDispatchRec> optimizeDeliveryOrder_Greedy(ServicePoint startPoint, List<MedDispatchRec> dispatches) {
+
+        List<MedDispatchRec> optimized = new ArrayList<>();
+        Set<Integer> visited = new HashSet<>();
+
+        // Start from service point
+        double currentLng = startPoint.getLocation().getLng();
+        double currentLat = startPoint.getLocation().getLat();
+
+        // Greedily select nearest unvisited dispatch
+        while (optimized.size() < dispatches.size()) {
+            MedDispatchRec nearest = null;
+            double minDistance = Double.MAX_VALUE;
+
+            for (MedDispatchRec dispatch : dispatches) {
+                if (visited.contains(dispatch.getId())) {
+                    continue;
+                }
+
+                double distance = calculateEuclideanDistance(
+                        currentLng, currentLat,
+                        dispatch.getDelivery().getLng(),
+                        dispatch.getDelivery().getLat()
+                );
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearest = dispatch;
+                }
+            }
+
+            if (nearest != null) {
+                optimized.add(nearest);
+                visited.add(nearest.getId());
+                currentLng = nearest.getDelivery().getLng();
+                currentLat = nearest.getDelivery().getLat();
+            } else {
+                break;
+            }
+        }
+
+        logger.debug("Greedy optimization: total estimated distance = {}",
+                calculateTotalDistance(startPoint, optimized));
+
+        return optimized;
+    }
+
+    /**
+     * Optimize delivery order using Dynamic Programming algorithm
+     */
+    private List<MedDispatchRec> optimizeDeliveryOrder_DP(ServicePoint startPoint, List<MedDispatchRec> dispatches) {
+
+        int n = dispatches.size();
+
+        // Build distance matrix
+        double[][] dist = new double[n][n];
+        double[] startDist = new double[n];
+
+        // Calculate distances from start point to each dispatch
+        for (int i = 0; i < n; i++) {
+            startDist[i] = calculateEuclideanDistance(
+                    startPoint.getLocation().getLng(),
+                    startPoint.getLocation().getLat(),
+                    dispatches.get(i).getDelivery().getLng(),
+                    dispatches.get(i).getDelivery().getLat()
+            );
+        }
+
+        // Calculate distances between dispatches
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n; j++) {
+                if (i != j) {
+                    dist[i][j] = calculateEuclideanDistance(
+                            dispatches.get(i).getDelivery().getLng(),
+                            dispatches.get(i).getDelivery().getLat(),
+                            dispatches.get(j).getDelivery().getLng(),
+                            dispatches.get(j).getDelivery().getLat()
+                    );
+                }
+            }
+        }
+
+        // DP table: dp[mask][i] = minimum distance to visit set 'mask' ending at i
+        double[][] dp = new double[1 << n][n];
+        int[][] parent = new int[1 << n][n];
+
+        // Initialize with infinity
+        for (double[] row : dp) {
+            Arrays.fill(row, Double.MAX_VALUE);
+        }
+
+        // Base case: start from service point to each dispatch
+        for (int i = 0; i < n; i++) {
+            dp[1 << i][i] = startDist[i];
+            parent[1 << i][i] = -1; // -1 indicates start point
+        }
+
+        // Fill DP table
+        for (int mask = 0; mask < (1 << n); mask++) {
+            for (int last = 0; last < n; last++) {
+                if ((mask & (1 << last)) == 0) continue;
+                if (dp[mask][last] == Double.MAX_VALUE) continue;
+
+                // Try to visit each unvisited dispatch
+                for (int next = 0; next < n; next++) {
+                    if ((mask & (1 << next)) != 0) continue;
+
+                    int newMask = mask | (1 << next);
+                    double newDist = dp[mask][last] + dist[last][next];
+
+                    if (newDist < dp[newMask][next]) {
+                        dp[newMask][next] = newDist;
+                        parent[newMask][next] = last;
+                    }
+                }
+            }
+        }
+
+        // Find the best ending position
+        int fullMask = (1 << n) - 1;
+        int bestLast = -1;
+        double bestDist = Double.MAX_VALUE;
+
+        for (int i = 0; i < n; i++) {
+            if (dp[fullMask][i] < bestDist) {
+                bestDist = dp[fullMask][i];
+                bestLast = i;
+            }
+        }
+
+        // Reconstruct path
+        List<Integer> path = new ArrayList<>();
+        int mask = fullMask;
+        int current = bestLast;
+
+        while (current != -1) {
+            path.add(current);
+            int prevMask = mask ^ (1 << current);
+            int prev = parent[mask][current];
+            mask = prevMask;
+            current = prev;
+        }
+
+        Collections.reverse(path);
+
+        // Convert indices to dispatches
+        List<MedDispatchRec> optimized = new ArrayList<>();
+        for (int idx : path) {
+            optimized.add(dispatches.get(idx));
+        }
+
+        logger.debug("DP optimization: optimal distance = {}", bestDist);
+
+        return optimized;
+    }
+
+    private double calculateEuclideanDistance(double lng1, double lat1, double lng2, double lat2) {
+        double dx = lng2 - lng1;
+        double dy = lat2 - lat1;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    /**
+     * Generate flight path from 'from' to 'to', avoiding restricted areas
+     * Uses A* pathfinding when direct path is blocked
+     */
+    private List<DeliveryPathResponse.LngLat> generateFlightPath(DeliveryPathResponse.LngLat from, DeliveryPathResponse.LngLat to, List<RestrictedArea> restrictedAreas) {
+
+        // Check if direct path is clear
+        if (isPathClear(from, to, restrictedAreas)) {
+            logger.debug("Direct path is clear from ({}, {}) to ({}, {})",
+                    from.getLng(), from.getLat(), to.getLng(), to.getLat());
+            // Return mutable ArrayList instead of immutable Arrays.asList
+            List<DeliveryPathResponse.LngLat> path = new ArrayList<>();
+            path.add(from);
+            path.add(to);
+            return path;
+        }
+
+        // Direct path blocked, use A* pathfinding
+        logger.debug("Direct path blocked, using A* pathfinding");
+        return aStarPathfinding(from, to, restrictedAreas);
+    }
+
+    /**
+     * Check if a direct path between two points crosses any restricted areas
+     */
+    private boolean isPathClear(DeliveryPathResponse.LngLat from, DeliveryPathResponse.LngLat to, List<RestrictedArea> restrictedAreas) {
+
+        // For now, simplified check: test if endpoints are in restricted areas
+        for (RestrictedArea area : restrictedAreas) {
+            if (isPointInPolygon(from.getLng(), from.getLat(), area.getVertices()) ||
+                    isPointInPolygon(to.getLng(), to.getLat(), area.getVertices())) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private double calculateTotalCost(Drone.Capability capability, int totalMoves) {
+        double initialCost = capability.getCostInitial() != null ?
+                capability.getCostInitial() : 0.0;
+        double costPerMove = capability.getCostPerMove() != null ?
+                capability.getCostPerMove() : 0.0;
+        double finalCost = capability.getCostFinal() != null ?
+                capability.getCostFinal() : 0.0;
+
+        double totalCost = initialCost + (costPerMove * totalMoves) + finalCost;
+
+        logger.debug("Cost breakdown - Initial: {}, PerMove: {} × {}, Final: {}, Total: {}",
+                initialCost, costPerMove, totalMoves, finalCost, totalCost);
+
+        return totalCost;
+    }
+
+    /**
+     * Inner class representing a node in A* search
+     */
+    private static class AStarNode {
+        double lng;
+        double lat;
+        double g; // Cost from start
+        double h; // Heuristic to goal
+        double f; // Total cost (g + h)
+        AStarNode parent;
+
+        AStarNode(double lng, double lat) {
+            this.lng = lng;
+            this.lat = lat;
+        }
+
+        /**
+         * Generate unique key for this node's position
+         * Rounds to 10 decimal places to handle floating point precision
+         */
+        String getKey() {
+            return String.format("%.10f,%.10f", lng, lat);
+        }
+    }
+
+    /**
+     * Calculate total distance for a delivery sequence
+     * Used for TSP optimization logging
+     */
+    private double calculateTotalDistance(
+            ServicePoint startPoint,
+            List<MedDispatchRec> dispatches) {
+
+        if (dispatches.isEmpty()) {
+            return 0.0;
+        }
+
+        double totalDist = 0.0;
+
+        // Distance from start to first dispatch
+        totalDist += calculateEuclideanDistance(
+                startPoint.getLocation().getLng(),
+                startPoint.getLocation().getLat(),
+                dispatches.get(0).getDelivery().getLng(),
+                dispatches.get(0).getDelivery().getLat()
+        );
+
+        // Distances between consecutive dispatches
+        for (int i = 0; i < dispatches.size() - 1; i++) {
+            totalDist += calculateEuclideanDistance(
+                    dispatches.get(i).getDelivery().getLng(),
+                    dispatches.get(i).getDelivery().getLat(),
+                    dispatches.get(i + 1).getDelivery().getLng(),
+                    dispatches.get(i + 1).getDelivery().getLat()
+            );
+        }
+
+        // Distance from last dispatch back to start
+        totalDist += calculateEuclideanDistance(
+                dispatches.get(dispatches.size() - 1).getDelivery().getLng(),
+                dispatches.get(dispatches.size() - 1).getDelivery().getLat(),
+                startPoint.getLocation().getLng(),
+                startPoint.getLocation().getLat()
+        );
+
+        return totalDist;
+    }
+
+    private List<DeliveryPathResponse.LngLat> aStarPathfinding(
+            DeliveryPathResponse.LngLat from,
+            DeliveryPathResponse.LngLat to,
+            List<RestrictedArea> restrictedAreas) {
+
+        logger.debug("Starting A* pathfinding from ({}, {}) to ({}, {})",
+                from.getLng(), from.getLat(), to.getLng(), to.getLat());
+
+        // Priority queue ordered by f(n) = g(n) + h(n)
+        PriorityQueue<AStarNode> openSet = new PriorityQueue<>(
+                Comparator.comparingDouble(n -> n.f)
+        );
+
+        Set<String> closedSet = new HashSet<>();
+        Map<String, AStarNode> allNodes = new HashMap<>();
+
+        // Initialize start node
+        AStarNode startNode = new AStarNode(from.getLng(), from.getLat());
+        startNode.g = 0;
+        startNode.h = calculateEuclideanDistance(from.getLng(), from.getLat(), to.getLng(), to.getLat());
+        startNode.f = startNode.g + startNode.h;
+
+        openSet.add(startNode);
+        allNodes.put(startNode.getKey(), startNode);
+
+        int iterations = 0;
+        int maxIterations = 100000; // Safety limit
+
+        while (!openSet.isEmpty() && iterations < maxIterations) {
+            iterations++;
+
+            AStarNode current = openSet.poll();
+
+            // Check if goal reached (within 0.00015 degree tolerance)
+            if (isGoalReached(current, to)) {
+                logger.debug("A* found path in {} iterations", iterations);
+                return reconstructPath(current);
+            }
+
+            closedSet.add(current.getKey());
+
+            // Explore all 16 compass directions
+            for (AStarNode neighbor : getValidNeighbors(current, to, restrictedAreas)) {
+                if (closedSet.contains(neighbor.getKey())) {
+                    continue;
+                }
+
+                // Calculate tentative g score (cost from start to neighbor)
+                double tentativeG = current.g + 0.00015; // Each move is 0.00015 degrees
+
+                AStarNode existingNode = allNodes.get(neighbor.getKey());
+
+                if (existingNode == null || tentativeG < existingNode.g) {
+                    neighbor.g = tentativeG;
+                    neighbor.h = calculateEuclideanDistance(
+                            neighbor.lng, neighbor.lat, to.getLng(), to.getLat()
+                    );
+                    neighbor.f = neighbor.g + neighbor.h;
+                    neighbor.parent = current;
+
+                    if (existingNode == null) {
+                        openSet.add(neighbor);
+                        allNodes.put(neighbor.getKey(), neighbor);
+                    } else {
+                        // Update existing node
+                        existingNode.g = neighbor.g;
+                        existingNode.h = neighbor.h;
+                        existingNode.f = neighbor.f;
+                        existingNode.parent = neighbor.parent;
+                        // Re-add to priority queue with updated priority
+                        openSet.remove(existingNode);
+                        openSet.add(existingNode);
+                    }
+                }
+            }
+        }
+
+        logger.warn("A* failed to find path after {} iterations", iterations);
+        return null; // No path found
+    }
+
+    private List<AStarNode> getValidNeighbors(
+            AStarNode current,
+            DeliveryPathResponse.LngLat goal,
+            List<RestrictedArea> restrictedAreas) {
+
+        List<AStarNode> neighbors = new ArrayList<>();
+        double step = 0.00015; // Fixed step size per specification
+
+        // 16 compass directions: 0°, 22.5°, 45°, 67.5°, 90°, ..., 337.5°
+        // Convention: 0° = East, 90° = North, 180° = West, 270° = South
+        int[] angles = {0, 22, 45, 67, 90, 112, 135, 157, 180, 202, 225, 247, 270, 292, 315, 337};
+
+        for (int angleDeg : angles) {
+            double angleRad = Math.toRadians(angleDeg);
+
+            // Calculate new position
+            // Using standard trigonometry: dx = cos(angle), dy = sin(angle)
+            double newLng = current.lng + step * Math.cos(angleRad);
+            double newLat = current.lat + step * Math.sin(angleRad);
+
+            // Create neighbor node
+            AStarNode neighbor = new AStarNode(newLng, newLat);
+
+            // Validate neighbor
+            if (isValidMove(current.lng, current.lat, newLng, newLat, restrictedAreas)) {
+                neighbors.add(neighbor);
+            }
+        }
+
+        return neighbors;
+    }
+
+    private boolean isValidMove(
+            double lng1, double lat1,
+            double lng2, double lat2,
+            List<RestrictedArea> restrictedAreas) {
+
+        // Check if endpoint is in restricted area
+        for (RestrictedArea area : restrictedAreas) {
+            if (isPointInOrNearPolygon(lng2, lat2, area.getVertices())) {
+                return false;
+            }
+
+            // Check if line segment crosses the restricted area
+            if (doesLineIntersectPolygon(lng1, lat1, lng2, lat2, area.getVertices())) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private boolean isPointInOrNearPolygon(
+            double lng, double lat,
+            List<RestrictedArea.Vertex> vertices) {
+
+        if (vertices == null || vertices.size() < 3) {
+            return false;
+        }
+
+        // Buffer distance to prevent corner cutting
+        double buffer = 0.00015;
+
+        // First check if point is inside polygon
+        if (isPointInPolygon(lng, lat, vertices)) {
+            return true;
+        }
+
+        // Check if point is too close to any edge
+        for (int i = 0; i < vertices.size(); i++) {
+            RestrictedArea.Vertex v1 = vertices.get(i);
+            RestrictedArea.Vertex v2 = vertices.get((i + 1) % vertices.size());
+
+            if (v1.getLng() == null || v1.getLat() == null ||
+                    v2.getLng() == null || v2.getLat() == null) {
+                continue;
+            }
+
+            double distToEdge = pointToLineDistance(
+                    lng, lat,
+                    v1.getLng(), v1.getLat(),
+                    v2.getLng(), v2.getLat()
+            );
+
+            if (distToEdge < buffer) {
+                return true; // Too close to edge
+            }
+        }
+
+        return false;
+    }
+
+    private double pointToLineDistance(
+            double px, double py,
+            double x1, double y1,
+            double x2, double y2) {
+
+        double A = px - x1;
+        double B = py - y1;
+        double C = x2 - x1;
+        double D = y2 - y1;
+
+        double dot = A * C + B * D;
+        double lenSq = C * C + D * D;
+
+        double param = (lenSq != 0) ? (dot / lenSq) : -1;
+
+        double xx, yy;
+
+        if (param < 0) {
+            xx = x1;
+            yy = y1;
+        } else if (param > 1) {
+            xx = x2;
+            yy = y2;
+        } else {
+            xx = x1 + param * C;
+            yy = y1 + param * D;
+        }
+
+        double dx = px - xx;
+        double dy = py - yy;
+
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private boolean doesLineIntersectPolygon(double x1, double y1, double x2, double y2, List<RestrictedArea.Vertex> vertices) {
+
+        if (vertices == null || vertices.size() < 3) {
+            return false;
+        }
+
+        // Check intersection with each edge of the polygon
+        for (int i = 0; i < vertices.size(); i++) {
+            RestrictedArea.Vertex v1 = vertices.get(i);
+            RestrictedArea.Vertex v2 = vertices.get((i + 1) % vertices.size());
+
+            if (v1.getLng() == null || v1.getLat() == null ||
+                    v2.getLng() == null || v2.getLat() == null) {
+                continue;
+            }
+
+            if (doLineSegmentsIntersect(
+                    x1, y1, x2, y2,
+                    v1.getLng(), v1.getLat(),
+                    v2.getLng(), v2.getLat())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if two line segments intersect
+     * Uses cross product method
+     */
+    private boolean doLineSegmentsIntersect(
+            double x1, double y1, double x2, double y2,
+            double x3, double y3, double x4, double y4) {
+
+        double d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+
+        if (Math.abs(d) < 1e-10) {
+            return false; // Parallel lines
+        }
+
+        double t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / d;
+        double u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / d;
+
+        return (t >= 0 && t <= 1 && u >= 0 && u <= 1);
+    }
+
+    /**
+     * Check if goal is reached (within 0.00015 degree tolerance)
+     */
+    private boolean isGoalReached(AStarNode node, DeliveryPathResponse.LngLat goal) {
+        double distance = calculateEuclideanDistance(
+                node.lng, node.lat, goal.getLng(), goal.getLat()
+        );
+        return distance < 0.00015; // Within one move distance
+    }
+
+    /**
+     * Reconstruct path from goal to start by following parent pointers
+     */
+    private List<DeliveryPathResponse.LngLat> reconstructPath(AStarNode goal) {
+        List<DeliveryPathResponse.LngLat> path = new ArrayList<>();
+        AStarNode current = goal;
+
+        while (current != null) {
+            path.add(new DeliveryPathResponse.LngLat(current.lng, current.lat));
+            current = current.parent;
+        }
+
+        Collections.reverse(path);
+
+        logger.debug("Reconstructed path with {} points", path.size());
+        return path;
     }
 }

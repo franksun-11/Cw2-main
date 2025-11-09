@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import uk.ac.ed.acp.cw2.dto.DeliveryPathResponse;
 import uk.ac.ed.acp.cw2.dto.Drone;
 import uk.ac.ed.acp.cw2.dto.MedDispatchRec;
 import uk.ac.ed.acp.cw2.dto.QueryCondition;
@@ -101,4 +102,30 @@ public class DroneController {
 
         return ResponseEntity.ok(droneIds);
     }
+
+    /**
+     * 5) POST /api/v1/calcDeliveryPath
+     * Calculate optimal delivery path for given dispatches
+     */
+    @PostMapping("/calcDeliveryPath")
+    public ResponseEntity<DeliveryPathResponse> calculateDeliveryPath(
+            @RequestBody List<MedDispatchRec> dispatches) {
+
+        logger.info("Request: POST /calcDeliveryPath with {} dispatches", dispatches.size());
+        logger.debug("Dispatches: {}", dispatches);
+
+        DeliveryPathResponse response = droneQueryService.calcDeliveryPath(dispatches);
+
+        if (response == null) {
+            logger.warn("Failed to calculate delivery path");
+            return ResponseEntity.badRequest().build();
+        }
+
+        logger.info("Successfully calculated delivery path - Cost: {}, Moves: {}, Drones: {}",
+                response.getTotalCost(), response.getTotalMoves(),
+                response.getDronePaths() != null ? response.getDronePaths().size() : 0);
+
+        return ResponseEntity.ok(response);
+    }
+
 }

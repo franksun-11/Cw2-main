@@ -1,6 +1,7 @@
 package uk.ac.ed.acp.cw2.service;
 
 import org.springframework.stereotype.Service;
+import uk.ac.ed.acp.cw2.dto.DeliveryPathResponse;
 import uk.ac.ed.acp.cw2.dto.Drone;
 import uk.ac.ed.acp.cw2.dto.MedDispatchRec;
 import uk.ac.ed.acp.cw2.dto.QueryCondition;
@@ -44,4 +45,9 @@ public interface DroneQueryService {
      * Query available drones for a list of dispatches
      */
     List<Integer> queryAvailableDrones(List<MedDispatchRec> dispatches);
+
+    /**
+     * Calculate the delivery path for a list of dispatches
+     */
+    DeliveryPathResponse calcDeliveryPath(List<MedDispatchRec> dispatches);
 }
