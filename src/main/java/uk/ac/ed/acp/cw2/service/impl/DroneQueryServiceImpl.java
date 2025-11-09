@@ -315,14 +315,14 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         }
 
         // 4. Check cost requirement
-        if (requirements.getMaxCost() != null) {
+/*        if (requirements.getMaxCost() != null) {
             double totalCost = calculateMaxCost(capability);
             if (totalCost > requirements.getMaxCost()) {
                 logger.debug("Drone {} total cost {} > max cost {}",
                         drone.getId(), totalCost, requirements.getMaxCost());
                 return false;
             }
-        }
+        }*/
 
         // 5. Check time availability
         if (dispatch.getDate() != null && dispatch.getTime() != null) {
@@ -446,8 +446,9 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         double initialCost = capability.getCostInitial() != null ? capability.getCostInitial() : 0.0;
         double perMove = capability.getCostPerMove() != null ? capability.getCostPerMove() : 0.0;
         double finalCost = capability.getCostFinal() != null ? capability.getCostFinal() : 0.0;
+        double maxMoves = capability.getMaxMoves() != null ? capability.getMaxMoves() : 0.0;
 
-        return initialCost + perMove + finalCost;
+        return initialCost + perMove * maxMoves + finalCost;
     }
 
     /**
@@ -687,8 +688,16 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                     }
                 }
 
-                // calculate moves
-                int movesForThisDelivery = path.size() - 1; // exclude hover point
+                // calculate moves (excluding hover - identical consecutive points)
+                int movesForThisDelivery = 0;
+                for (int j = 1; j < path.size(); j++) {
+                    DeliveryPathResponse.LngLat prev = path.get(j - 1);
+                    DeliveryPathResponse.LngLat curr = path.get(j);
+                    // Only count as a move if positions are different (not hovering)
+                    if (!prev.getLng().equals(curr.getLng()) || !prev.getLat().equals(curr.getLat())) {
+                        movesForThisDelivery++;
+                    }
+                }
                 totalMoves += movesForThisDelivery;
 
                 // create Delivery object
@@ -714,6 +723,17 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         // calculate total cost
         double totalCost = calculateTotalCost(drone.getCapability(), totalMoves);
 
+        // Validate total cost against each dispatch's max cost requirement
+        for (MedDispatchRec dispatch : dispatches) {
+            if (dispatch.getRequirements().getMaxCost() != null) {
+                if (totalCost > dispatch.getRequirements().getMaxCost()) {
+                    logger.debug("Path cost {} exceeds requirement {} for dispatch {}",
+                            totalCost, dispatch.getRequirements().getMaxCost(), dispatch.getId());
+                    return null;
+                }
+            }
+        }
+
         // build response
         DeliveryPathResponse.DronePath dronePath = new DeliveryPathResponse.DronePath();
         dronePath.setDroneId(drone.getId());
@@ -729,34 +749,47 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
         return response;
     }
-
     /**
      * Optimize delivery order using TSP algorithm
      * Uses Dynamic Programming for small sets (<=12) and Greedy for larger sets
      */
     private List<MedDispatchRec> optimizeDeliveryOrder(ServicePoint startPoint, List<MedDispatchRec> dispatches) {
 
-        int n = dispatches.size();
+        // 先按时间排序
+        List<MedDispatchRec> sortedByTime = dispatches.stream()
+                .sorted(Comparator.comparing(MedDispatchRec::getTime))
+                .collect(Collectors.toList());
+
+        int n = sortedByTime.size();
 
         if (n == 0) {
             return List.of();
         }
 
         if (n == 1) {
-            return dispatches;
+            return sortedByTime;
         }
 
-        // Use Dynamic Programming for small sets (more accurate)
+        // 如果时间跨度很小,可以进行 TSP 优化
+        // 否则严格按时间顺序
+        LocalTime firstTime = sortedByTime.get(0).getTime();
+        LocalTime lastTime = sortedByTime.get(n - 1).getTime();
+
+        // 如果时间跨度大于 30 分钟,必须按时间顺序
+        if (java.time.Duration.between(firstTime, lastTime).toMinutes() > 30) {
+            logger.debug("Time span > 30 minutes, using time-based order");
+            return sortedByTime;
+        }
+
+        // 否则可以进行 TSP 优化
         if (n <= 12) {
             logger.debug("Using DP algorithm for {} dispatches", n);
-            return optimizeDeliveryOrder_DP(startPoint, dispatches);
+            return optimizeDeliveryOrder_DP(startPoint, sortedByTime);
         }
 
-        // Use Greedy algorithm for larger sets (faster)
         logger.debug("Using Greedy algorithm for {} dispatches", n);
-        return optimizeDeliveryOrder_Greedy(startPoint, dispatches);
+        return optimizeDeliveryOrder_Greedy(startPoint, sortedByTime);
     }
-
     /**
      * Optimize delivery order using Greedy algorithm
      */
