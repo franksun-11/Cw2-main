@@ -958,23 +958,102 @@ public class DroneQueryServiceImpl implements DroneQueryService {
     /**
      * Generate flight path from 'from' to 'to', avoiding restricted areas
      * Uses A* pathfinding when direct path is blocked
+     * IMPORTANT: Every move must be exactly 0.00015 degrees in one of 16 compass directions
      */
     private List<DeliveryPathResponse.LngLat> generateFlightPath(DeliveryPathResponse.LngLat from, DeliveryPathResponse.LngLat to, List<RestrictedArea> restrictedAreas) {
 
-        // Check if direct path is clear
+        // Check if direct path is clear (no restricted areas blocking)
         if (isPathClear(from, to, restrictedAreas)) {
             logger.debug("Direct path is clear from ({}, {}) to ({}, {})",
                     from.getLng(), from.getLat(), to.getLng(), to.getLat());
-            // Return mutable ArrayList instead of immutable Arrays.asList
-            List<DeliveryPathResponse.LngLat> path = new ArrayList<>();
-            path.add(from);
-            path.add(to);
-            return path;
+            // Generate step-by-step path with moves of 0.00015 degrees
+            return generateDirectPath(from, to, restrictedAreas);
         }
 
         // Direct path blocked, use A* pathfinding
         logger.debug("Direct path blocked, using A* pathfinding");
         return aStarPathfinding(from, to, restrictedAreas);
+    }
+
+    /**
+     * Generate a direct path from 'from' to 'to' using greedy approach
+     * Each step is exactly 0.00015 degrees in one of 16 compass directions
+     * Stops when within 0.00015 degrees of target (close enough)
+     */
+    private List<DeliveryPathResponse.LngLat> generateDirectPath(
+            DeliveryPathResponse.LngLat from,
+            DeliveryPathResponse.LngLat to,
+            List<RestrictedArea> restrictedAreas) {
+
+        List<DeliveryPathResponse.LngLat> path = new ArrayList<>();
+        DeliveryPathResponse.LngLat current = new DeliveryPathResponse.LngLat(from.getLng(), from.getLat());
+        path.add(current);
+
+        final double MOVE_DISTANCE = 0.00015;
+        final double CLOSE_THRESHOLD = 0.00015;
+
+        // 16 compass directions in degrees: 0, 22.5, 45, 67.5, ..., 337.5
+        double[] angles = {0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5};
+
+        int maxSteps = 10000; // Safety limit to prevent infinite loops
+        int steps = 0;
+
+        while (steps < maxSteps) {
+            // Check if we're close enough to target
+            double distance = calculateEuclideanDistance(
+                current.getLng(), current.getLat(),
+                to.getLng(), to.getLat()
+            );
+
+            if (distance < CLOSE_THRESHOLD) {
+                // Close enough - add final target position if not already there
+                if (!current.getLng().equals(to.getLng()) || !current.getLat().equals(to.getLat())) {
+                    path.add(new DeliveryPathResponse.LngLat(to.getLng(), to.getLat()));
+                }
+                break;
+            }
+
+            // Find best direction to move (greedy approach)
+            double bestDistance = Double.MAX_VALUE;
+            DeliveryPathResponse.LngLat bestNext = null;
+
+            for (double angleDeg : angles) {
+                double angleRad = Math.toRadians(angleDeg);
+                double newLng = current.getLng() + MOVE_DISTANCE * Math.cos(angleRad);
+                double newLat = current.getLat() + MOVE_DISTANCE * Math.sin(angleRad);
+
+                // Calculate distance from this new position to target
+                double distToTarget = calculateEuclideanDistance(newLng, newLat, to.getLng(), to.getLat());
+
+                // Check if this move is valid (not crossing restricted areas)
+                boolean valid = isValidMove(current.getLng(), current.getLat(), newLng, newLat, restrictedAreas);
+
+                if (valid && distToTarget < bestDistance) {
+                    bestDistance = distToTarget;
+                    bestNext = new DeliveryPathResponse.LngLat(newLng, newLat);
+                }
+            }
+
+            if (bestNext == null) {
+                // No valid move found - path is blocked, fall back to A*
+                logger.warn("Direct greedy path blocked at ({}, {}), using A* instead",
+                    current.getLng(), current.getLat());
+                return aStarPathfinding(from, to, restrictedAreas);
+            }
+
+            // Make the best move
+            current = bestNext;
+            path.add(current);
+            steps++;
+        }
+
+        if (steps >= maxSteps) {
+            logger.error("Direct path generation exceeded max steps, falling back to A*");
+            return aStarPathfinding(from, to, restrictedAreas);
+        }
+
+        logger.debug("Generated direct path with {} steps", path.size() - 1);
+        return path;
     }
 
     /**
@@ -1168,9 +1247,9 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
         // 16 compass directions: 0°, 22.5°, 45°, 67.5°, 90°, ..., 337.5°
         // Convention: 0° = East, 90° = North, 180° = West, 270° = South
-        int[] angles = {0, 22, 45, 67, 90, 112, 135, 157, 180, 202, 225, 247, 270, 292, 315, 337};
+        double[] angles = {0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5};
 
-        for (int angleDeg : angles) {
+        for (double angleDeg : angles) {
             double angleRad = Math.toRadians(angleDeg);
 
             // Calculate new position
