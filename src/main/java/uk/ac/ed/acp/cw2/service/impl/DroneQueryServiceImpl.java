@@ -1965,40 +1965,20 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
         logger.info("Using greedy cost-based selection for {} sub-dispatches", dispatches.size());
 
-        DeliveryPathResponse bestSolution = null;
-        double bestCost = Double.MAX_VALUE;
-        String bestStrategy = "";
-
-        // Strategy 1: Try each service point independently (all drones from one location)
-        for (ServicePoint sp : servicePoints) {
-            DeliveryPathResponse spSolution = tryServicePointOnly(
-                    sp, dispatches, suitableDroneIds, allDrones, droneAvailability, restrictedAreas, usedDroneIds);
-
-            if (spSolution != null && spSolution.getTotalCost() < bestCost) {
-                bestCost = spSolution.getTotalCost();
-                bestSolution = spSolution;
-                bestStrategy = "All from " + sp.getName();
-                logger.info("New best: {} with cost {}", bestStrategy, bestCost);
-            }
-        }
-
-        // Strategy 2: Try mixed solution (drones from multiple service points)
-        DeliveryPathResponse mixedSolution = tryMixedServicePoints(
+        // Use globally cheapest strategy - this considers all drones from all service points
+        // and picks the cheapest ones, which naturally results in the optimal solution
+        DeliveryPathResponse bestSolution = tryMixedServicePoints(
                 dispatches, suitableDroneIds, allDrones, servicePoints, droneAvailability, restrictedAreas, usedDroneIds);
 
-        if (mixedSolution != null && mixedSolution.getTotalCost() < bestCost) {
-            bestCost = mixedSolution.getTotalCost();
-            bestSolution = mixedSolution;
-            bestStrategy = "Mixed from multiple service points";
-            logger.info("New best: {} with cost {}", bestStrategy, bestCost);
-        }
-
         if (bestSolution != null) {
-            // Mark drones as used
+            // Mark drones as used and log the result
+            List<Integer> selectedDrones = new ArrayList<>();
             for (DeliveryPathResponse.DronePath path : bestSolution.getDronePaths()) {
                 usedDroneIds.add(path.getDroneId());
+                selectedDrones.add(path.getDroneId());
             }
-            logger.info("Final optimal solution: {} with cost {}", bestStrategy, bestCost);
+            logger.info("Optimal greedy solution found with cost {} - Selected drones: {}",
+                    String.format("%.2f", bestSolution.getTotalCost()), selectedDrones);
         }
 
         return bestSolution;
@@ -2050,6 +2030,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         double totalCost = 0.0;
         int totalMoves = 0;
         Set<Integer> assignedDrones = new HashSet<>();
+        List<Integer> dronesCombination = new ArrayList<>();
 
         for (MedDispatchRec dispatch : dispatches) {
             Double requiredCap = dispatch.getRequirements().getCapacity();
@@ -2078,7 +2059,10 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             totalCost += result.getTotalCost();
             totalMoves += result.getTotalMoves();
             assignedDrones.add(selectedDrone.getId());
+            dronesCombination.add(selectedDrone.getId());
         }
+
+        logger.info("Tried combination {} from {} - Total cost: {}", dronesCombination, sp.getName(), String.format("%.2f", totalCost));
 
         DeliveryPathResponse solution = new DeliveryPathResponse();
         solution.setDronePaths(paths);
@@ -2146,6 +2130,8 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         double totalCost = 0.0;
         int totalMoves = 0;
         Set<Integer> assignedDrones = new HashSet<>();
+        List<Integer> dronesCombination = new ArrayList<>();
+        List<String> droneServicePointInfo = new ArrayList<>();
 
         for (MedDispatchRec dispatch : dispatches) {
             Double requiredCap = dispatch.getRequirements().getCapacity();
@@ -2174,7 +2160,12 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             totalCost += result.getTotalCost();
             totalMoves += result.getTotalMoves();
             assignedDrones.add(selectedDsp.drone.getId());
+            dronesCombination.add(selectedDsp.drone.getId());
+            droneServicePointInfo.add(selectedDsp.drone.getId() + "@" + selectedDsp.servicePoint.getName());
         }
+
+        logger.info("Greedy selection result: Drones {} from {} - Total cost: {}",
+                dronesCombination, droneServicePointInfo, String.format("%.2f", totalCost));
 
         DeliveryPathResponse solution = new DeliveryPathResponse();
         solution.setDronePaths(paths);
