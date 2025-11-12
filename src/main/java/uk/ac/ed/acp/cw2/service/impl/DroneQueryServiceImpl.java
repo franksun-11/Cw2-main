@@ -220,14 +220,14 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 }
             }
 
-            // If single drone solution found, return it
+            // If single drone solution found, store it but also try multi-drone to compare
             if (bestResponse != null) {
-                logger.info("Single drone solution - Cost: {}, Moves: {}", bestResponse.getTotalCost(), bestResponse.getTotalMoves());
-                return bestResponse;
+                logger.info("Single drone solution found - Cost: {}, Moves: {}",
+                        bestResponse.getTotalCost(), bestResponse.getTotalMoves());
             }
 
-            // STRATEGY 2: Single drone failed, try multi-drone solution
-            logger.info("Single drone solution not possible, attempting multi-drone delivery");
+            // STRATEGY 2: Always try multi-drone solution to compare moves
+            logger.info("Trying multi-drone solution for comparison");
 
             // For multi-drone, we need ALL available drones (not just those that can handle all dispatches together)
             List<Integer> allAvailableDroneIds = allDrones.stream()
@@ -237,10 +237,24 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             DeliveryPathResponse multiDroneResponse = calculateMultiDronePath(
                     dispatches, allDrones, servicePoints, droneAvailability, allAvailableDroneIds, restrictedAreas);
 
-            if (multiDroneResponse != null) {
-                logger.info("Multi-drone solution - Cost: {}, Moves: {}, Drones: {}",
-                        multiDroneResponse.getTotalCost(), multiDroneResponse.getTotalMoves(),
-                        multiDroneResponse.getDronePaths().size());
+            // Compare single vs multi-drone and pick the one with fewer MOVES (instructor priority)
+            if (bestResponse != null && multiDroneResponse != null) {
+                if (bestResponse.getTotalMoves() <= multiDroneResponse.getTotalMoves()) {
+                    logger.info("✓ Choosing single-drone: {} moves ≤ {} moves (multi-drone) - Saved {} moves!",
+                            bestResponse.getTotalMoves(), multiDroneResponse.getTotalMoves(),
+                            multiDroneResponse.getTotalMoves() - bestResponse.getTotalMoves());
+                    return bestResponse;
+                } else {
+                    logger.info("✓ Choosing multi-drone: {} moves < {} moves (single-drone) - Saved {} moves!",
+                            multiDroneResponse.getTotalMoves(), bestResponse.getTotalMoves(),
+                            bestResponse.getTotalMoves() - multiDroneResponse.getTotalMoves());
+                    return multiDroneResponse;
+                }
+            } else if (bestResponse != null) {
+                logger.info("✓ Using single-drone solution (multi-drone failed)");
+                return bestResponse;
+            } else if (multiDroneResponse != null) {
+                logger.info("✓ Using multi-drone solution (single-drone not possible)");
                 return multiDroneResponse;
             }
 
@@ -288,8 +302,9 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
     /**
      * Check if a drone can fulfill all dispatches
-     * IMPORTANT: A single flight cannot carry items with both cooling AND heating requirements
-     * (can't simultaneously cool and heat the cargo bay)
+     * IMPORTANT:
+     * 1. Total capacity of all dispatches must not exceed drone capacity
+     * 2. If dispatches require both cooling AND heating, the drone must have BOTH capabilities
      */
     private boolean fulfillAllDispatches(Drone drone, List<MedDispatchRec> dispatches, List<DroneServicePointAvailability> droneAvailability, List<RestrictedArea> restrictedAreas) {
         if (drone.getCapability() == null) {
@@ -297,16 +312,35 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             return false;
         }
 
-        // Check for conflicting requirements across deliveries in the same flight
-        // Spec: "Cooling / heating are either / or" - cannot use both in same flight
-        boolean hasCooling = dispatches.stream()
+        // Check total capacity for all dispatches combined
+        double totalCapacity = dispatches.stream()
+                .mapToDouble(d -> d.getRequirements().getCapacity())
+                .sum();
+
+        if (totalCapacity > drone.getCapability().getCapacity()) {
+            logger.debug("Drone {} cannot fulfill all dispatches: total capacity {} exceeds drone capacity {}",
+                    drone.getId(), totalCapacity, drone.getCapability().getCapacity());
+            return false;
+        }
+
+        // Check if dispatches require both cooling AND heating
+        boolean needsCooling = dispatches.stream()
                 .anyMatch(d -> Boolean.TRUE.equals(d.getRequirements().getCooling()));
-        boolean hasHeating = dispatches.stream()
+        boolean needsHeating = dispatches.stream()
                 .anyMatch(d -> Boolean.TRUE.equals(d.getRequirements().getHeating()));
 
-        if (hasCooling && hasHeating) {
-            logger.debug("Drone {} cannot fulfill deliveries with conflicting cooling and heating requirements in same flight", drone.getId());
-            return false;
+        // If both are needed, drone must have BOTH capabilities
+        if (needsCooling && needsHeating) {
+            boolean hasBothCapabilities = Boolean.TRUE.equals(drone.getCapability().getCooling())
+                    && Boolean.TRUE.equals(drone.getCapability().getHeating());
+
+            if (!hasBothCapabilities) {
+                logger.debug("Drone {} cannot fulfill deliveries requiring both cooling and heating (drone has: cooling={}, heating={})",
+                        drone.getId(), drone.getCapability().getCooling(), drone.getCapability().getHeating());
+                return false;
+            }
+
+            logger.debug("Drone {} can fulfill deliveries requiring both cooling and heating", drone.getId());
         }
 
         return dispatches.stream()
@@ -1233,7 +1267,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         allNodes.put(startNode.getKey(), startNode);
 
         int iterations = 0;
-        int maxIterations = 100000; // Safety limit
+        int maxIterations = 50000; // Safety limit
 
         while (!openSet.isEmpty() && iterations < maxIterations) {
             iterations++;
@@ -1524,7 +1558,21 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             }
         }
 
-        // Step 1: Partition by conflicting requirements (cooling/heating/standard)
+        // Step 0.5: Try to use a single multi-capability drone for ALL dispatches
+        // This minimizes moves by combining cooling+heating+standard in one trip
+        DeliveryPathResponse allInOneResult = tryAllDispatchesInOneDrone(
+                expandedDispatches, allDrones, servicePoints, droneAvailability,
+                availableDroneIds, restrictedAreas);
+
+        if (allInOneResult != null) {
+            logger.info("Single-drone all-in-one solution found: {} moves, cost: {}",
+                    allInOneResult.getTotalMoves(), String.format("%.2f", allInOneResult.getTotalCost()));
+        }
+
+        // Step 1: Always try partitioned solution to compare with all-in-one
+        logger.info("Trying partitioned multi-drone solution for comparison");
+
+        // Partition by conflicting requirements (cooling/heating/standard)
         Map<String, List<MedDispatchRec>> partitionMap = partitionByRequirements(expandedDispatches);
 
         logger.debug("Partitioned into: {} cooling, {} heating, {} standard",
@@ -1577,50 +1625,80 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                         .anyMatch(count -> count > 1);
 
                 DeliveryPathResponse singleDroneResult = null;
+                DeliveryPathResponse multiDroneResult = null;
 
                 // Step 5: Try single drone solution first (but skip for sub-dispatches)
                 if (!hasSubDispatches) {
                     singleDroneResult = trySingleDroneSolution(
                             dailyDispatches, suitableDroneIds, allDrones, servicePoints,
-                            droneAvailability, restrictedAreas, usedDroneIds);
+                            droneAvailability, restrictedAreas, new HashSet<>(usedDroneIds)); // Use copy to avoid modifying
 
                     if (singleDroneResult != null) {
-                        allDronePaths.addAll(singleDroneResult.getDronePaths());
-                        totalCost += singleDroneResult.getTotalCost();
-                        totalMoves += singleDroneResult.getTotalMoves();
-                        continue;
+                        logger.info("Single-drone solution found: {} moves from {} service point",
+                                singleDroneResult.getTotalMoves(),
+                                singleDroneResult.getDronePaths().isEmpty() ? "unknown" :
+                                singleDroneResult.getDronePaths().get(0).getDroneId());
                     }
                 } else {
                     logger.info("Detected {} sub-dispatches from capacity overflow, assigning to different drones",
                             dailyDispatches.size());
                 }
 
-                // Step 6: Single drone failed or has sub-dispatches, split into batches
-                logger.info("Splitting {} dispatches into batches for multiple drones", dailyDispatches.size());
+                // Step 6: Always try multi-drone solution to compare
+                logger.info("Trying multi-drone solution for {} dispatches to compare moves", dailyDispatches.size());
 
-                DeliveryPathResponse batchResult;
-
-                // For sub-dispatches (capacity overflow), try all combinations to find lowest cost
+                // For sub-dispatches (capacity overflow), try all combinations to find fewest moves / lowest cost
                 if (hasSubDispatches && dailyDispatches.size() <= 5) {
-                    logger.info("Trying all drone combinations for {} sub-dispatches to minimize cost", dailyDispatches.size());
-                    batchResult = findOptimalDroneCombination(
+                    logger.info("Trying all drone combinations for {} sub-dispatches to minimize moves", dailyDispatches.size());
+                    multiDroneResult = findOptimalDroneCombination(
                             dailyDispatches, suitableDroneIds, allDrones, servicePoints,
-                            droneAvailability, restrictedAreas, usedDroneIds);
+                            droneAvailability, restrictedAreas, new HashSet<>(usedDroneIds));
                 } else {
                     // Use greedy approach for normal dispatches or large sets
-                    batchResult = splitIntoBatches(
+                    multiDroneResult = splitIntoBatches(
                             dailyDispatches, suitableDroneIds, allDrones, servicePoints,
-                            droneAvailability, restrictedAreas, usedDroneIds);
+                            droneAvailability, restrictedAreas, new HashSet<>(usedDroneIds));
                 }
 
-                if (batchResult == null) {
-                    logger.error("Failed to assign {} {} dispatches", dailyDispatches.size(), requirementType);
+                if (multiDroneResult != null) {
+                    logger.info("Multi-drone solution found: {} moves, {} drones, cost: {}",
+                            multiDroneResult.getTotalMoves(),
+                            multiDroneResult.getDronePaths().size(),
+                            String.format("%.2f", multiDroneResult.getTotalCost()));
+                }
+
+                // Step 7: Compare and pick the solution with minimum moves
+                DeliveryPathResponse bestResult = null;
+                if (singleDroneResult != null && multiDroneResult != null) {
+                    if (singleDroneResult.getTotalMoves() <= multiDroneResult.getTotalMoves()) {
+                        bestResult = singleDroneResult;
+                        logger.info("✓ Single-drone is better: {} moves vs {} moves (multi-drone)",
+                                singleDroneResult.getTotalMoves(), multiDroneResult.getTotalMoves());
+                    } else {
+                        bestResult = multiDroneResult;
+                        logger.info("✓ Multi-drone is better: {} moves vs {} moves (single-drone)",
+                                multiDroneResult.getTotalMoves(), singleDroneResult.getTotalMoves());
+                    }
+                } else if (singleDroneResult != null) {
+                    bestResult = singleDroneResult;
+                    logger.info("✓ Using single-drone solution (only option)");
+                } else if (multiDroneResult != null) {
+                    bestResult = multiDroneResult;
+                    logger.info("✓ Using multi-drone solution (only option)");
+                }
+
+                if (bestResult == null) {
+                    logger.error("Failed to assign {} {} dispatches - neither single nor multi-drone worked",
+                            dailyDispatches.size(), requirementType);
                     return null;
                 }
 
-                allDronePaths.addAll(batchResult.getDronePaths());
-                totalCost += batchResult.getTotalCost();
-                totalMoves += batchResult.getTotalMoves();
+                // Update used drones based on best result
+                bestResult.getDronePaths().forEach(path -> usedDroneIds.add(path.getDroneId()));
+
+                allDronePaths.addAll(bestResult.getDronePaths());
+                totalCost += bestResult.getTotalCost();
+                totalMoves += bestResult.getTotalMoves();
             }
         }
 
@@ -1629,8 +1707,21 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         response.setTotalMoves(totalMoves);
         response.setDronePaths(allDronePaths);
 
-        logger.info("Multi-drone solution: {} drones, {} moves, cost {}, Drones used: {}",
+        logger.info("Multi-drone partitioned solution: {} drones, {} moves, cost {}, Drones used: {}",
                 usedDroneIds.size(), totalMoves, totalCost, usedDroneIds);
+
+        // Compare all-in-one vs partitioned and pick the one with fewer moves
+        if (allInOneResult != null) {
+            if (allInOneResult.getTotalMoves() < totalMoves) {
+                logger.info("✓ Choosing all-in-one single drone: {} moves < {} moves (partitioned) - Saved {} moves!",
+                        allInOneResult.getTotalMoves(), totalMoves, totalMoves - allInOneResult.getTotalMoves());
+                return allInOneResult;
+            } else {
+                logger.info("✓ Choosing partitioned multi-drone: {} moves < {} moves (all-in-one) - Saved {} moves!",
+                        totalMoves, allInOneResult.getTotalMoves(), allInOneResult.getTotalMoves() - totalMoves);
+                return response;
+            }
+        }
 
         return response;
     }
@@ -1813,6 +1904,101 @@ public class DroneQueryServiceImpl implements DroneQueryService {
     }
 
     /**
+     * Try to assign ALL dispatches (cooling+heating+standard) to a single multi-capability drone.
+     * This minimizes moves by combining everything in one trip.
+     * Only possible if:
+     * 1. A drone has both cooling AND heating capabilities (if both are needed)
+     * 2. Total capacity fits
+     * 3. Total moves don't exceed maxMoves
+     * 4. Drone is available at all required times
+     */
+    private DeliveryPathResponse tryAllDispatchesInOneDrone(
+            List<MedDispatchRec> dispatches,
+            List<Drone> allDrones,
+            List<ServicePoint> servicePoints,
+            List<DroneServicePointAvailability> droneAvailability,
+            List<Integer> availableDroneIds,
+            List<RestrictedArea> restrictedAreas) {
+
+        if (dispatches.isEmpty()) return null;
+
+        // Check what capabilities are needed
+        boolean needsCooling = dispatches.stream()
+                .anyMatch(d -> Boolean.TRUE.equals(d.getRequirements().getCooling()));
+        boolean needsHeating = dispatches.stream()
+                .anyMatch(d -> Boolean.TRUE.equals(d.getRequirements().getHeating()));
+
+        // Calculate total capacity needed
+        double totalCapacity = dispatches.stream()
+                .mapToDouble(d -> d.getRequirements().getCapacity())
+                .sum();
+
+        logger.debug("Trying all-in-one drone: needs cooling={}, heating={}, total capacity={}",
+                needsCooling, needsHeating, totalCapacity);
+
+        // Find drones that meet ALL requirements
+        List<Drone> suitableDrones = allDrones.stream()
+                .filter(d -> availableDroneIds.contains(d.getId()))
+                .filter(d -> d.getCapability() != null)
+                .filter(d -> d.getCapability().getCapacity() >= totalCapacity)
+                .filter(d -> !needsCooling || Boolean.TRUE.equals(d.getCapability().getCooling()))
+                .filter(d -> !needsHeating || Boolean.TRUE.equals(d.getCapability().getHeating()))
+                .collect(Collectors.toList());
+
+        if (suitableDrones.isEmpty()) {
+            logger.debug("No single drone can handle all dispatches (need cooling={}, heating={}, capacity={})",
+                    needsCooling, needsHeating, totalCapacity);
+            return null;
+        }
+
+        logger.debug("Found {} drones that could handle all dispatches", suitableDrones.size());
+
+        // Try each suitable drone from each service point
+        DeliveryPathResponse bestResult = null;
+        double bestMoves = Double.MAX_VALUE;
+
+        for (Drone drone : suitableDrones) {
+            // Find which service points have this drone
+            for (ServicePoint sp : servicePoints) {
+                List<Integer> spDroneIds = getDroneIdsAtServicePoint(
+                        sp.getId(), droneAvailability, availableDroneIds);
+
+                if (!spDroneIds.contains(drone.getId())) {
+                    continue;
+                }
+
+                // Check if drone is available for all dispatch times
+                boolean availableForAll = true;
+                for (MedDispatchRec dispatch : dispatches) {
+                    if (!isDroneAvailableAtTime(drone.getId(), dispatch.getDate().getDayOfWeek(),
+                            dispatch.getTime(), droneAvailability)) {
+                        availableForAll = false;
+                        break;
+                    }
+                }
+
+                if (!availableForAll) {
+                    continue;
+                }
+
+                // Try this drone for all dispatches
+                DeliveryPathResponse result = calculatePathForDrone(
+                        drone, sp, dispatches, restrictedAreas);
+
+                if (result != null && result.getTotalMoves() < bestMoves) {
+                    bestMoves = result.getTotalMoves();
+                    bestResult = result;
+                    logger.debug("  Drone {} from {} can handle all {} dispatches - Moves: {}, Cost: {}",
+                            drone.getId(), sp.getName(), dispatches.size(),
+                            result.getTotalMoves(), String.format("%.2f", result.getTotalCost()));
+                }
+            }
+        }
+
+        return bestResult;
+    }
+
+    /**
      * Filter drones by requirement type and exclude already used ones.
      * Also checks basic capability (capacity) for at least one dispatch.
      */
@@ -1911,6 +2097,11 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             List<RestrictedArea> restrictedAreas,
             Set<Integer> usedDroneIds) {
 
+        DeliveryPathResponse bestResult = null;
+        int bestMoves = Integer.MAX_VALUE;
+        Integer bestDroneId = null;
+
+        // Try all suitable drones and pick the one with minimum moves
         for (ServicePoint sp : servicePoints) {
             List<Integer> spDroneIds = getDroneIdsAtServicePoint(
                     sp.getId(), droneAvailability, suitableDroneIds);
@@ -1934,20 +2125,28 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
                 if (!availableForAll) continue;
 
-                // Reuse existing calculatePathForDrone method
+                // Calculate path for this drone
                 DeliveryPathResponse result = calculatePathForDrone(
                         drone, sp, dispatches, restrictedAreas);
 
-                if (result != null) {
-                    logger.info("Successfully assigned {} dispatches to single drone {} at {}",
-                            dispatches.size(), droneId, sp.getName());
-                    usedDroneIds.add(droneId);
-                    return result;
+                if (result != null && result.getTotalMoves() < bestMoves) {
+                    bestResult = result;
+                    bestMoves = result.getTotalMoves();
+                    bestDroneId = droneId;
+                    logger.debug("Found better drone {} at {} with {} moves (cost: {})",
+                            droneId, sp.getName(), result.getTotalMoves(),
+                            String.format("%.2f", result.getTotalCost()));
                 }
             }
         }
 
-        return null;
+        if (bestResult != null) {
+            logger.info("Successfully assigned {} dispatches to single drone {} with minimum {} moves (cost: {})",
+                    dispatches.size(), bestDroneId, bestMoves, String.format("%.2f", bestResult.getTotalCost()));
+            usedDroneIds.add(bestDroneId);
+        }
+
+        return bestResult;
     }
 
     /**
@@ -1963,10 +2162,10 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             List<RestrictedArea> restrictedAreas,
             Set<Integer> usedDroneIds) {
 
-        logger.info("Using greedy cost-based selection for {} sub-dispatches", dispatches.size());
+        logger.info("Using greedy moves-based selection for {} sub-dispatches", dispatches.size());
 
-        // Use globally cheapest strategy - this considers all drones from all service points
-        // and picks the cheapest ones, which naturally results in the optimal solution
+        // Use strategy that minimizes total moves (prime goal as per instructor)
+        // This considers all drones from all service points and picks those resulting in minimum moves
         DeliveryPathResponse bestSolution = tryMixedServicePoints(
                 dispatches, suitableDroneIds, allDrones, servicePoints, droneAvailability, restrictedAreas, usedDroneIds);
 
@@ -1977,8 +2176,8 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 usedDroneIds.add(path.getDroneId());
                 selectedDrones.add(path.getDroneId());
             }
-            logger.info("Optimal greedy solution found with cost {} - Selected drones: {}",
-                    String.format("%.2f", bestSolution.getTotalCost()), selectedDrones);
+            logger.info("Optimal greedy solution found with {} moves (cost: {}) - Selected drones: {}",
+                    bestSolution.getTotalMoves(), String.format("%.2f", bestSolution.getTotalCost()), selectedDrones);
         }
 
         return bestSolution;
@@ -2105,7 +2304,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             byCapacity.computeIfAbsent(dispatch.getRequirements().getCapacity(), k -> new ArrayList<>()).add(dispatch);
         }
 
-        // Find capable drones across ALL service points, sorted by cost
+        // Find capable drones across ALL service points, sorted by estimated moves (minimize moves is the goal)
         Map<Double, List<DroneWithServicePoint>> dronesByCapacity = new HashMap<>();
         for (Double requiredCap : byCapacity.keySet()) {
             List<DroneWithServicePoint> capableDrones = availableDroneIds.stream()
@@ -2116,7 +2315,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                     })
                     .filter(Objects::nonNull)
                     .filter(dsp -> dsp.drone.getCapability() != null && dsp.drone.getCapability().getCapacity() >= requiredCap)
-                    .sorted(Comparator.comparingDouble(dsp -> estimateDroneCost(dsp.drone, dsp.servicePoint, dispatches.get(0).getDelivery())))
+                    .sorted(Comparator.comparingDouble(dsp -> estimateDroneMoves(dsp.drone, dsp.servicePoint, dispatches.get(0).getDelivery())))
                     .collect(Collectors.toList());
 
             if (capableDrones.size() < byCapacity.get(requiredCap).size()) {
@@ -2164,8 +2363,8 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             droneServicePointInfo.add(selectedDsp.drone.getId() + "@" + selectedDsp.servicePoint.getName());
         }
 
-        logger.info("Greedy selection result: Drones {} from {} - Total cost: {}",
-                dronesCombination, droneServicePointInfo, String.format("%.2f", totalCost));
+        logger.info("Greedy selection result: Drones {} from {} - Moves: {}, Cost: {}",
+                dronesCombination, droneServicePointInfo, totalMoves, String.format("%.2f", totalCost));
 
         DeliveryPathResponse solution = new DeliveryPathResponse();
         solution.setDronePaths(paths);
@@ -2186,6 +2385,41 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             this.drone = drone;
             this.servicePoint = servicePoint;
         }
+    }
+
+    /**
+     * Helper class to pair a drone with its service point and distance to delivery
+     */
+    private static class DroneServicePointPair {
+        Drone drone;
+        ServicePoint servicePoint;
+        double distance;
+
+        DroneServicePointPair(Drone drone, ServicePoint servicePoint, double distance) {
+            this.drone = drone;
+            this.servicePoint = servicePoint;
+            this.distance = distance;
+        }
+    }
+
+
+    /**
+     * Estimate the number of moves for a drone to make a delivery to a specific location.
+     * Used for sorting drones to minimize total moves (prime goal per instructor).
+     */
+    private double estimateDroneMoves(Drone drone, ServicePoint sp, MedDispatchRec.Delivery delivery) {
+        Drone.Capability cap = drone.getCapability();
+        if (cap == null) return Double.MAX_VALUE;
+
+        // Estimate distance
+        double distance = calculateEuclideanDistance(
+                sp.getLocation().getLng(), sp.getLocation().getLat(),
+                delivery.getLng(), delivery.getLat());
+
+        // Estimate moves (round trip)
+        int estimatedMoves = (int) Math.ceil(distance / 0.00015) * 2;
+
+        return estimatedMoves;
     }
 
     /**
