@@ -178,10 +178,11 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
         try {
             // STRATEGY 1: Try single drone solution first (most efficient)
+            // Note: Same drone CAN deliver on multiple days - it returns to service point each day
             DeliveryPathResponse bestResponse = null;
             double bestCost = Double.MAX_VALUE;
 
-            // Only try single-drone solution if there are drones that can handle all dispatches
+            // Try single-drone solution if there are drones that can handle all dispatches
             if (!availableDroneIds.isEmpty()) {
                 for (ServicePoint sp : servicePoints) {
                     // Get drones available at this service point
@@ -693,21 +694,24 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             List<RestrictedArea> restrictedAreas) {
         logger.info("Calculating path for drone {} from service point {}", drone.getId(), servicePoint.getName());
 
-        // Group dispatches by date
+        // Group dispatches by date and sort by date
         Map<LocalDate, List<MedDispatchRec>> dispatchByDate = dispatches.stream()
                 .collect(Collectors.groupingBy(MedDispatchRec::getDate));
 
         List<DeliveryPathResponse.Delivery> allDeliveries = new ArrayList<>();
         int totalMoves = 0;
 
-        // Process each day's dispatches separately
-        for (Map.Entry<LocalDate, List<MedDispatchRec>> entry : dispatchByDate.entrySet()) {
-            LocalDate date = entry.getKey();
-            List<MedDispatchRec> dailyDispatches = entry.getValue();
+        // Process each day's dispatches separately, IN DATE ORDER
+        List<LocalDate> sortedDates = dispatchByDate.keySet().stream()
+                .sorted()
+                .collect(Collectors.toList());
+
+        for (LocalDate date : sortedDates) {
+            List<MedDispatchRec> dailyDispatches = dispatchByDate.get(date);
 
             logger.debug("Processing {} dispatches for date {}", dailyDispatches.size(), date);
 
-            // optimise delivery order
+            // Optimize delivery order (respects time ordering within the day)
             List<MedDispatchRec> optimiseOrder = optimizeDeliveryOrder(servicePoint, dailyDispatches);
 
             // Generate flight path for this day's deliveries
@@ -1921,6 +1925,10 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             List<RestrictedArea> restrictedAreas) {
 
         if (dispatches.isEmpty()) return null;
+
+        // Note: Same drone CAN deliver on multiple days (instructor: "Every day is a new game")
+        // The drone returns to service point after each day's deliveries
+        // calculatePathForDrone already groups by date and processes each day separately
 
         // Check what capabilities are needed
         boolean needsCooling = dispatches.stream()
