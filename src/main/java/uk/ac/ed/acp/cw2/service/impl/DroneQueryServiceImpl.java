@@ -393,13 +393,13 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         }
 
         return dispatches.stream()
-                .allMatch(dispatch -> fulfillDispatch(drone, dispatch, droneAvailability, restrictedAreas));
+                .allMatch(dispatch -> fulfillDispatch(drone, dispatch, dispatches, droneAvailability, restrictedAreas));
     }
 
     /**
      * Check if a drone can fulfill a single dispatch
      */
-    private boolean fulfillDispatch(Drone drone, MedDispatchRec dispatch, List<DroneServicePointAvailability> droneAvailability, List<RestrictedArea> restrictedAreas) {
+    private boolean fulfillDispatch(Drone drone, MedDispatchRec dispatch, List<MedDispatchRec> allDispatches, List<DroneServicePointAvailability> droneAvailability, List<RestrictedArea> restrictedAreas) {
         Drone.Capability capability = drone.getCapability();
         MedDispatchRec.Requirements requirements = dispatch.getRequirements();
 
@@ -429,15 +429,17 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             }
         }
 
-        // 4. Check cost requirement
-/*        if (requirements.getMaxCost() != null) {
-            double totalCost = calculateMaxCost(capability);
-            if (totalCost > requirements.getMaxCost()) {
-                logger.debug("Drone {} total cost {} > max cost {}",
-                        drone.getId(), totalCost, requirements.getMaxCost());
+        // 4. Check maxCost requirement (using estimation/approximation)
+        if (requirements.getMaxCost() != null) {
+            // Estimate cost for this dispatch using approximation approach
+            double estimatedCost = estimateDispatchCost(drone, dispatch, allDispatches, droneAvailability);
+
+            if (estimatedCost > requirements.getMaxCost()) {
+                logger.debug("Drone {} estimated cost {} exceeds maxCost {}",
+                        drone.getId(), String.format("%.2f", estimatedCost), requirements.getMaxCost());
                 return false;
             }
-        }*/
+        }
 
         // 5. Check time availability
         if (dispatch.getDate() != null && dispatch.getTime() != null) {
@@ -553,15 +555,283 @@ public class DroneQueryServiceImpl implements DroneQueryService {
     }
 
     /**
-     * Calculate the maximum cost of a drone
+     * Estimate the cost for a single dispatch assuming it's part of a delivery pack.
+     * For continuous delivery (same date): SP → L1 → L2 → ... → SP
+     * For different dates: Each date is a separate trip with full fixed costs
+     *
+     * Formula:
+     * - Single dispatch: (SP → delivery → SP) / 0.00015
+     * - Same date dispatches: optimize route order, split fixed costs
+     * - Different dates: calculate separately, each gets full fixed costs
+     * - Per dispatch cost = (fixed costs share) + (segment moves × costPerMove)
      */
-    private double calculateMaxCost(Drone.Capability capability) {
-        double initialCost = capability.getCostInitial() != null ? capability.getCostInitial() : 0.0;
-        double perMove = capability.getCostPerMove() != null ? capability.getCostPerMove() : 0.0;
-        double finalCost = capability.getCostFinal() != null ? capability.getCostFinal() : 0.0;
-        double maxMoves = capability.getMaxMoves() != null ? capability.getMaxMoves() : 0.0;
+    private double estimateDispatchCost(
+            Drone drone,
+            MedDispatchRec dispatch,
+            List<MedDispatchRec> allDispatches,
+            List<DroneServicePointAvailability> droneAvailability) {
 
-        return initialCost + perMove * maxMoves + finalCost;
+        Drone.Capability capability = drone.getCapability();
+
+        // Get cost parameters
+        double costInitial = capability.getCostInitial() != null ? capability.getCostInitial() : 0.0;
+        double costPerMove = capability.getCostPerMove() != null ? capability.getCostPerMove() : 0.0;
+        double costFinal = capability.getCostFinal() != null ? capability.getCostFinal() : 0.0;
+        final double MOVE_DISTANCE = 0.00015;
+
+        // Find closest service point that has this drone
+        ServicePoint closestSP = findClosestServicePointForDrone(
+                drone.getId(), dispatch.getDelivery(), droneAvailability);
+
+        if (closestSP == null) {
+            return Double.MAX_VALUE;
+        }
+
+        // Check if all dispatches are on the same date
+        boolean allSameDate = allDispatches.stream()
+                .allMatch(d -> d.getDate().equals(dispatch.getDate()));
+
+        // Case 1: Single dispatch - simple round trip (SP → delivery → SP)
+        if (allDispatches.size() == 1) {
+            double distanceToDelivery = calculateEuclideanDistance(
+                    closestSP.getLocation().getLng(),
+                    closestSP.getLocation().getLat(),
+                    dispatch.getDelivery().getLng(),
+                    dispatch.getDelivery().getLat()
+            );
+            double roundTripDistance = distanceToDelivery * 2;
+            double estimatedMoves = Math.ceil(roundTripDistance / MOVE_DISTANCE);
+            double moveCost = estimatedMoves * costPerMove;
+            double totalCost = (costInitial + costFinal) + moveCost;
+
+            logger.debug("Drone {} - Dispatch {} (single): moves={}, moveCost={}, fixedCost={}, total={}",
+                    drone.getId(), dispatch.getId(), (int)estimatedMoves,
+                    String.format("%.2f", moveCost),
+                    String.format("%.2f", (costInitial + costFinal)),
+                    String.format("%.2f", totalCost));
+
+            return totalCost;
+        }
+
+        // Case 2: Different dates - each dispatch treated separately with full fixed costs
+        if (!allSameDate) {
+            double distanceToDelivery = calculateEuclideanDistance(
+                    closestSP.getLocation().getLng(),
+                    closestSP.getLocation().getLat(),
+                    dispatch.getDelivery().getLng(),
+                    dispatch.getDelivery().getLat()
+            );
+            double roundTripDistance = distanceToDelivery * 2;
+            double estimatedMoves = Math.ceil(roundTripDistance / MOVE_DISTANCE);
+            double moveCost = estimatedMoves * costPerMove;
+            double totalCost = (costInitial + costFinal) + moveCost;
+
+            logger.debug("Drone {} - Dispatch {} (different date): moves={}, moveCost={}, fixedCost={}, total={}",
+                    drone.getId(), dispatch.getId(), (int)estimatedMoves,
+                    String.format("%.2f", moveCost),
+                    String.format("%.2f", (costInitial + costFinal)),
+                    String.format("%.2f", totalCost));
+
+            return totalCost;
+        }
+
+        // Case 3: Same date, multiple dispatches - continuous delivery with route optimization
+        // Optimize delivery order to minimize total distance: SP → L1 → L2 → SP
+        List<MedDispatchRec> sameDateDispatches = allDispatches.stream()
+                .filter(d -> d.getDate().equals(dispatch.getDate()))
+                .collect(Collectors.toList());
+
+        int numDispatches = sameDateDispatches.size();
+        double fixedCostPerDispatch = (costInitial + costFinal) / numDispatches;
+
+        List<MedDispatchRec> orderedDispatches = optimizeSimpleRouteForEstimation(closestSP, sameDateDispatches);
+
+        // Calculate segment distances for optimized route
+        double[] segmentDistances = new double[numDispatches + 1];
+
+        // Segment 0: SP → first delivery
+        segmentDistances[0] = calculateEuclideanDistance(
+                closestSP.getLocation().getLng(),
+                closestSP.getLocation().getLat(),
+                orderedDispatches.get(0).getDelivery().getLng(),
+                orderedDispatches.get(0).getDelivery().getLat()
+        );
+
+        // Segments 1 to n-1: delivery i → delivery i+1
+        for (int i = 0; i < numDispatches - 1; i++) {
+            segmentDistances[i + 1] = calculateEuclideanDistance(
+                    orderedDispatches.get(i).getDelivery().getLng(),
+                    orderedDispatches.get(i).getDelivery().getLat(),
+                    orderedDispatches.get(i + 1).getDelivery().getLng(),
+                    orderedDispatches.get(i + 1).getDelivery().getLat()
+            );
+        }
+
+        // Last segment: last delivery → SP
+        segmentDistances[numDispatches] = calculateEuclideanDistance(
+                orderedDispatches.get(numDispatches - 1).getDelivery().getLng(),
+                orderedDispatches.get(numDispatches - 1).getDelivery().getLat(),
+                closestSP.getLocation().getLng(),
+                closestSP.getLocation().getLat()
+        );
+
+        // Find which position this dispatch is in the optimized order
+        int dispatchIndex = -1;
+        for (int i = 0; i < orderedDispatches.size(); i++) {
+            if (orderedDispatches.get(i).getId().equals(dispatch.getId())) {
+                dispatchIndex = i;
+                break;
+            }
+        }
+
+        if (dispatchIndex == -1) {
+            logger.warn("Dispatch {} not found in ordered list", dispatch.getId());
+            return Double.MAX_VALUE;
+        }
+
+        // Calculate moves for this dispatch's segments
+        double dispatchDistance = 0.0;
+
+        if (dispatchIndex == 0) {
+            // First delivery: SP → L1 → L2
+            dispatchDistance = segmentDistances[0] + segmentDistances[1];
+        } else if (dispatchIndex == numDispatches - 1) {
+            // Last delivery: L(n-1) → Ln → SP
+            dispatchDistance = segmentDistances[dispatchIndex] + segmentDistances[dispatchIndex + 1];
+        } else {
+            // Middle delivery: L(i-1) → Li → L(i+1)
+            dispatchDistance = segmentDistances[dispatchIndex] + segmentDistances[dispatchIndex + 1];
+        }
+
+        double estimatedMoves = Math.ceil(dispatchDistance / MOVE_DISTANCE);
+        double moveCost = estimatedMoves * costPerMove;
+        double totalCost = fixedCostPerDispatch + moveCost;
+
+        logger.debug("Drone {} - Dispatch {} (same date, pos {}/{}): moves={}, moveCost={}, fixedCost={}, total={}",
+                drone.getId(), dispatch.getId(), dispatchIndex + 1, numDispatches, (int)estimatedMoves,
+                String.format("%.2f", moveCost),
+                String.format("%.2f", fixedCostPerDispatch),
+                String.format("%.2f", totalCost));
+
+        return totalCost;
+    }
+
+    /**
+     * Simple route optimization for dispatches: find best order to minimize total distance
+     * For 2 dispatches: try both orders (L1→L2 vs L2→L1) and pick the shorter one
+     * For more: use nearest neighbor heuristic
+     */
+    private List<MedDispatchRec> optimizeSimpleRouteForEstimation(ServicePoint sp, List<MedDispatchRec> dispatches) {
+        if (dispatches.size() <= 1) {
+            return new ArrayList<>(dispatches);
+        }
+
+        // For 2 dispatches, try both orders and pick the shorter one
+        if (dispatches.size() == 2) {
+            MedDispatchRec d1 = dispatches.get(0);
+            MedDispatchRec d2 = dispatches.get(1);
+
+            // Order 1: SP → D1 → D2 → SP
+            double dist1 = calculateEuclideanDistance(
+                    sp.getLocation().getLng(), sp.getLocation().getLat(),
+                    d1.getDelivery().getLng(), d1.getDelivery().getLat()
+            ) + calculateEuclideanDistance(
+                    d1.getDelivery().getLng(), d1.getDelivery().getLat(),
+                    d2.getDelivery().getLng(), d2.getDelivery().getLat()
+            ) + calculateEuclideanDistance(
+                    d2.getDelivery().getLng(), d2.getDelivery().getLat(),
+                    sp.getLocation().getLng(), sp.getLocation().getLat()
+            );
+
+            // Order 2: SP → D2 → D1 → SP
+            double dist2 = calculateEuclideanDistance(
+                    sp.getLocation().getLng(), sp.getLocation().getLat(),
+                    d2.getDelivery().getLng(), d2.getDelivery().getLat()
+            ) + calculateEuclideanDistance(
+                    d2.getDelivery().getLng(), d2.getDelivery().getLat(),
+                    d1.getDelivery().getLng(), d1.getDelivery().getLat()
+            ) + calculateEuclideanDistance(
+                    d1.getDelivery().getLng(), d1.getDelivery().getLat(),
+                    sp.getLocation().getLng(), sp.getLocation().getLat()
+            );
+
+            return dist1 <= dist2 ? List.of(d1, d2) : List.of(d2, d1);
+        }
+
+        // For more dispatches, use nearest neighbor heuristic
+        List<MedDispatchRec> result = new ArrayList<>();
+        Set<Integer> visited = new HashSet<>();
+
+        // Start from service point, pick nearest unvisited delivery
+        double currentLng = sp.getLocation().getLng();
+        double currentLat = sp.getLocation().getLat();
+
+        while (result.size() < dispatches.size()) {
+            double minDist = Double.MAX_VALUE;
+            MedDispatchRec nearest = null;
+
+            for (MedDispatchRec d : dispatches) {
+                if (visited.contains(d.getId())) continue;
+
+                double dist = calculateEuclideanDistance(
+                        currentLng, currentLat,
+                        d.getDelivery().getLng(), d.getDelivery().getLat()
+                );
+
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = d;
+                }
+            }
+
+            if (nearest != null) {
+                result.add(nearest);
+                visited.add(nearest.getId());
+                currentLng = nearest.getDelivery().getLng();
+                currentLat = nearest.getDelivery().getLat();
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Find the closest service point that has the specified drone available
+     */
+    private ServicePoint findClosestServicePointForDrone(
+            Integer droneId,
+            MedDispatchRec.Delivery delivery,
+            List<DroneServicePointAvailability> droneAvailability) {
+
+        // Fetch all service points
+        List<ServicePoint> allServicePoints = fetchAllServicePoints();
+
+        ServicePoint closestSP = null;
+        double minDistance = Double.MAX_VALUE;
+
+        for (ServicePoint sp : allServicePoints) {
+            // Check if this service point has the drone
+            boolean hasDrone = droneAvailability.stream()
+                    .filter(dsp -> dsp.getServicePointId().equals(sp.getId()))
+                    .flatMap(dsp -> dsp.getDrones().stream())
+                    .anyMatch(d -> String.valueOf(droneId).equals(d.getId()));
+
+            if (hasDrone) {
+                double distance = calculateEuclideanDistance(
+                        sp.getLocation().getLng(),
+                        sp.getLocation().getLat(),
+                        delivery.getLng(),
+                        delivery.getLat()
+                );
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestSP = sp;
+                }
+            }
+        }
+
+        return closestSP;
     }
 
     /**
@@ -749,6 +1019,9 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         List<DeliveryPathResponse.Delivery> allDeliveries = new ArrayList<>();
         int totalMoves = 0;
 
+        // Track moves per dispatch for cost calculation
+        Map<Integer, Integer> movesPerDispatch = new HashMap<>();
+
         // Process each day's dispatches separately, IN DATE ORDER
         List<LocalDate> sortedDates = dispatchByDate.keySet().stream()
                 .sorted()
@@ -821,6 +1094,9 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 int movesForThisDelivery = path.size() - 1; // Total positions minus 1 = total moves
                 totalMoves += movesForThisDelivery;
 
+                // Track moves for this dispatch for cost calculation
+                movesPerDispatch.put(dispatch.getId(), movesForThisDelivery);
+
                 // create Delivery object
                 DeliveryPathResponse.Delivery delivery = new DeliveryPathResponse.Delivery();
                 delivery.setDeliveryId(dispatch.getId());
@@ -844,12 +1120,37 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         // calculate total cost
         double totalCost = calculateTotalCost(drone.getCapability(), totalMoves);
 
-        // Validate total cost against each dispatch's max cost requirement
+        // Validate maxCost for each dispatch
+        // Fixed costs (initial + final) are split equally among dispatches
+        // Move costs are calculated per dispatch based on actual moves
+        int numDispatches = dispatches.size();
+        double costInitial = drone.getCapability().getCostInitial() != null ?
+                drone.getCapability().getCostInitial() : 0.0;
+        double costFinal = drone.getCapability().getCostFinal() != null ?
+                drone.getCapability().getCostFinal() : 0.0;
+        double costPerMove = drone.getCapability().getCostPerMove() != null ?
+                drone.getCapability().getCostPerMove() : 0.0;
+        double fixedCostPerDispatch = (costInitial + costFinal) / numDispatches;
+
         for (MedDispatchRec dispatch : dispatches) {
             if (dispatch.getRequirements().getMaxCost() != null) {
-                if (totalCost > dispatch.getRequirements().getMaxCost()) {
-                    logger.debug("Path cost {} exceeds requirement {} for dispatch {}",
-                            totalCost, dispatch.getRequirements().getMaxCost(), dispatch.getId());
+                // Get actual moves for this dispatch
+                Integer dispatchMoves = movesPerDispatch.get(dispatch.getId());
+                if (dispatchMoves == null) {
+                    logger.warn("No move tracking for dispatch {}", dispatch.getId());
+                    continue;
+                }
+
+                // Cost for this dispatch = (fixed costs / num dispatches) + (moves * cost per move)
+                double dispatchCost = fixedCostPerDispatch + (dispatchMoves * costPerMove);
+
+                if (dispatchCost > dispatch.getRequirements().getMaxCost()) {
+                    logger.debug("Drone {} dispatch {} cost {} (fixed: {}, moves: {}×{}) exceeds maxCost {}",
+                            drone.getId(), dispatch.getId(),
+                            String.format("%.2f", dispatchCost),
+                            String.format("%.2f", fixedCostPerDispatch),
+                            dispatchMoves, String.format("%.4f", costPerMove),
+                            dispatch.getRequirements().getMaxCost());
                     return null;
                 }
             }
@@ -876,40 +1177,27 @@ public class DroneQueryServiceImpl implements DroneQueryService {
      */
     private List<MedDispatchRec> optimizeDeliveryOrder(ServicePoint startPoint, List<MedDispatchRec> dispatches) {
 
-        // 先按时间排序
-        List<MedDispatchRec> sortedByTime = dispatches.stream()
-                .sorted(Comparator.comparing(MedDispatchRec::getTime))
-                .collect(Collectors.toList());
+        // Note: Time field is only for checking drone availability, NOT for ordering deliveries
+        // Delivery order is optimized purely by geographic distance to minimize moves
 
-        int n = sortedByTime.size();
+        int n = dispatches.size();
 
         if (n == 0) {
             return List.of();
         }
 
         if (n == 1) {
-            return sortedByTime;
+            return dispatches;
         }
 
-        // 如果时间跨度很小,可以进行 TSP 优化
-        // 否则严格按时间顺序
-        LocalTime firstTime = sortedByTime.get(0).getTime();
-        LocalTime lastTime = sortedByTime.get(n - 1).getTime();
-
-        // 如果时间跨度大于 30 分钟,必须按时间顺序
-        if (java.time.Duration.between(firstTime, lastTime).toMinutes() > 30) {
-            logger.debug("Time span > 30 minutes, using time-based order");
-            return sortedByTime;
-        }
-
-        // 否则可以进行 TSP 优化
+        // Use TSP optimization to minimize total distance/moves
         if (n <= 12) {
             logger.debug("Using DP algorithm for {} dispatches", n);
-            return optimizeDeliveryOrder_DP(startPoint, sortedByTime);
+            return optimizeDeliveryOrder_DP(startPoint, dispatches);
         }
 
         logger.debug("Using Greedy algorithm for {} dispatches", n);
-        return optimizeDeliveryOrder_Greedy(startPoint, sortedByTime);
+        return optimizeDeliveryOrder_Greedy(startPoint, dispatches);
     }
 
     /**
@@ -1582,7 +1870,6 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
         logger.info("Starting multi-drone path calculation for {} deliveries", dispatches.size());
 
-        // Step 0: Validate that no dispatch exceeds maximum available drone capacity
         // If any dispatch exceeds capacity, we CANNOT split it - return null
         double maxAvailableCapacity = allDrones.stream()
                 .filter(d -> availableDroneIds.contains(d.getId()))
@@ -2079,29 +2366,6 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         return estimatedMoves;
     }
 
-    /**
-     * Estimate the cost for a drone to make a delivery to a specific location.
-     * Used for sorting drones by cost efficiency.
-     */
-    private double estimateDroneCost(Drone drone, ServicePoint sp, MedDispatchRec.Delivery delivery) {
-        Drone.Capability cap = drone.getCapability();
-        if (cap == null) return Double.MAX_VALUE;
-
-        // Estimate distance
-        double distance = calculateEuclideanDistance(
-                sp.getLocation().getLng(), sp.getLocation().getLat(),
-                delivery.getLng(), delivery.getLat());
-
-        // Estimate moves (round trip)
-        int estimatedMoves = (int) Math.ceil(distance / 0.00015) * 2;
-
-        // Estimate cost
-        double costInitial = cap.getCostInitial() != null ? cap.getCostInitial() : 0.0;
-        double costPerMove = cap.getCostPerMove() != null ? cap.getCostPerMove() : 0.0;
-        double costFinal = cap.getCostFinal() != null ? cap.getCostFinal() : 0.0;
-
-        return costInitial + (costPerMove * estimatedMoves) + costFinal;
-    }
 
     /**
      * Generate all permutations of selecting k items from a list
@@ -2148,31 +2412,51 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 dispatches.size(),
                 dispatches.stream().map(d -> d.getId() + ":" + d.getRequirements().getCapacity()).collect(Collectors.toList()));
 
-        // Find best service point (closest to deliveries)
-        ServicePoint bestSp = findClosestServicePoint(dispatches, servicePoints);
-
         List<DeliveryPathResponse.DronePath> allPaths = new ArrayList<>();
         double totalCost = 0.0;
         int totalMoves = 0;
         List<MedDispatchRec> remaining = new ArrayList<>(dispatches);
 
         while (!remaining.isEmpty()) {
-            // Get available drones at service point
-            List<Integer> spDroneIds = getDroneIdsAtServicePoint(
-                    bestSp.getId(), droneAvailability, suitableDroneIds);
-            spDroneIds.removeAll(usedDroneIds);
+            // Try ALL service points to find best drone/batch combination
+            // This is critical when a delivery might be impossible from the closest service point
+            // but feasible from another service point with different drones
+            BestBatchResult best = null;
 
-            if (spDroneIds.isEmpty()) {
-                logger.error("No more drones available at service point {}", bestSp.getName());
-                return null;
+            for (ServicePoint sp : servicePoints) {
+                // Get available drones at this service point
+                List<Integer> spDroneIds = getDroneIdsAtServicePoint(
+                        sp.getId(), droneAvailability, suitableDroneIds);
+                spDroneIds.removeAll(usedDroneIds);
+
+                if (spDroneIds.isEmpty()) {
+                    logger.debug("No available drones at service point {}", sp.getName());
+                    continue;
+                }
+
+                // Find best drone and batch at this service point
+                BestBatchResult candidate = findBestBatch(
+                        remaining, spDroneIds, allDrones, sp, restrictedAreas);
+
+                if (candidate != null && !candidate.batch.isEmpty()) {
+                    // Compare with current best: prefer larger batch, then fewer moves, then lower cost
+                    if (best == null) {
+                        best = candidate;
+                    } else if (candidate.batch.size() > best.batch.size()) {
+                        best = candidate;
+                    } else if (candidate.batch.size() == best.batch.size()) {
+                        if (candidate.response.getTotalMoves() < best.response.getTotalMoves()) {
+                            best = candidate;
+                        } else if (candidate.response.getTotalMoves().equals(best.response.getTotalMoves()) &&
+                                   candidate.response.getTotalCost() < best.response.getTotalCost()) {
+                            best = candidate;
+                        }
+                    }
+                }
             }
 
-            // Find best drone and batch
-            BestBatchResult best = findBestBatch(
-                    remaining, spDroneIds, allDrones, bestSp, restrictedAreas);
-
             if (best == null || best.batch.isEmpty()) {
-                logger.error("Cannot find valid batch for remaining {} dispatches", remaining.size());
+                logger.error("Cannot find valid batch for remaining {} dispatches across all service points", remaining.size());
                 return null;
             }
 
@@ -2231,8 +2515,8 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             ServicePoint servicePoint,
             List<RestrictedArea> restrictedAreas) {
 
-        logger.debug("Finding best batch for {} remaining dispatches", remaining.size());
-        logger.debug("Evaluating drones: {}", droneIds);
+        logger.info("Finding best batch for {} remaining dispatches", remaining.size());
+        logger.info("Evaluating drones: {}", droneIds);
         BestBatchResult best = null;
 
         for (Integer droneId : droneIds) {
@@ -2347,32 +2631,11 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 hasHeating = true;
             }
 
-            // Estimate moves for this delivery
-            if (maxMoves != null) {
-                double distance;
-                if (batch.isEmpty()) {
-                    // From service point to delivery
-                    distance = calculateEuclideanDistance(
-                            servicePoint.getLocation().getLng(),
-                            servicePoint.getLocation().getLat(),
-                            dispatch.getDelivery().getLng(),
-                            dispatch.getDelivery().getLat());
-                    estimatedMoves = (int) Math.ceil(distance / MOVE_DISTANCE) * 2; // Round trip
-                } else {
-                    // From last delivery to this one
-                    MedDispatchRec last = batch.get(batch.size() - 1);
-                    distance = calculateEuclideanDistance(
-                            last.getDelivery().getLng(),
-                            last.getDelivery().getLat(),
-                            dispatch.getDelivery().getLng(),
-                            dispatch.getDelivery().getLat());
-                    estimatedMoves += (int) Math.ceil(distance / MOVE_DISTANCE);
-                }
-
-                if (estimatedMoves > maxMoves) {
-                    break; // Can't fit more moves
-                }
-            }
+            // NOTE: We don't pre-filter by maxMoves estimate here because:
+            // 1. TSP optimization can significantly reduce actual moves
+            // 2. The estimate doesn't account for optimal routing
+            // 3. calculatePathForDrone will do the precise maxMoves check
+            // We only use capacity and cooling/heating constraints for pre-filtering
 
             // Add to batch
             batch.add(dispatch);
@@ -2398,171 +2661,5 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             this.response = response;
         }
     }
-    /**
-     * Assign a group of deliveries to minimal number of drones.
-     * Strategy: Greedily fit as many deliveries as possible per drone.
-     */
-    private DeliveryPathResponse assignDeliveriesToMinimalDrones(
-            List<MedDispatchRec> deliveries,
-            String requirementType,
-            List<Drone> allDrones,
-            List<ServicePoint> servicePoints,
-            List<DroneServicePointAvailability> droneAvailability,
-            List<Integer> availableDroneIds,
-            List<RestrictedArea> restrictedAreas,
-            Set<Integer> usedDroneIds) {
 
-        if (deliveries.isEmpty()) {
-            DeliveryPathResponse response = new DeliveryPathResponse();
-            response.setTotalCost(0.0);
-            response.setTotalMoves(0);
-            response.setDronePaths(new ArrayList<>());
-            return response;
-        }
-
-        logger.debug("Assigning {} {} deliveries to minimal drones", deliveries.size(), requirementType);
-
-        // Get suitable drones for this requirement type
-        List<Integer> suitableDroneIds = filterDronesByRequirement(availableDroneIds, allDrones, requirementType)
-                .stream()
-                .filter(id -> !usedDroneIds.contains(id)) // Exclude already used drones
-                .collect(Collectors.toList());
-
-        if (suitableDroneIds.isEmpty()) {
-            logger.warn("No suitable drones available for {} requirement", requirementType);
-            return null;
-        }
-
-        List<DeliveryPathResponse.DronePath> dronePaths = new ArrayList<>();
-        double totalCost = 0.0;
-        int totalMoves = 0;
-        List<MedDispatchRec> remaining = new ArrayList<>(deliveries);
-
-        // Greedily assign deliveries to drones
-        while (!remaining.isEmpty()) {
-            // Find best drone that can handle the most remaining deliveries
-            DroneAssignment best = findBestDroneForDeliveries(
-                    remaining, suitableDroneIds, allDrones, servicePoints,
-                    droneAvailability, restrictedAreas);
-
-            if (best == null || best.deliveries.isEmpty()) {
-                logger.warn("Cannot assign remaining {} deliveries", remaining.size());
-                return null;
-            }
-
-            // Add this drone's path
-            dronePaths.addAll(best.response.getDronePaths());
-            totalCost += best.response.getTotalCost();
-            totalMoves += best.response.getTotalMoves();
-            usedDroneIds.add(best.droneId);
-            suitableDroneIds.remove(best.droneId);
-
-            // Remove assigned deliveries from remaining
-            remaining.removeAll(best.deliveries);
-
-            logger.debug("Assigned {} deliveries to drone {}, {} remaining",
-                    best.deliveries.size(), best.droneId, remaining.size());
-        }
-
-        DeliveryPathResponse response = new DeliveryPathResponse();
-        response.setTotalCost(totalCost);
-        response.setTotalMoves(totalMoves);
-        response.setDronePaths(dronePaths);
-
-        return response;
-    }
-
-    /**
-     * Find the best drone that can handle the most deliveries from the remaining set.
-     */
-    private DroneAssignment findBestDroneForDeliveries(
-            List<MedDispatchRec> deliveries,
-            List<Integer> suitableDroneIds,
-            List<Drone> allDrones,
-            List<ServicePoint> servicePoints,
-            List<DroneServicePointAvailability> droneAvailability,
-            List<RestrictedArea> restrictedAreas) {
-
-        DroneAssignment best = null;
-        int maxDeliveries = 0;
-
-        // Try each suitable drone at each service point
-        for (ServicePoint sp : servicePoints) {
-            List<Integer> dronesAtSp = getDroneIdsAtServicePoint(sp.getId(), droneAvailability, suitableDroneIds);
-
-            for (Integer droneId : dronesAtSp) {
-                Drone drone = allDrones.stream()
-                        .filter(d -> d.getId().equals(droneId))
-                        .findFirst()
-                        .orElse(null);
-
-                if (drone == null) continue;
-
-                // Try to fit as many deliveries as possible with this drone
-                // Start with all deliveries, reduce if needed
-                for (int numToTry = deliveries.size(); numToTry > 0; numToTry--) {
-                    List<MedDispatchRec> subset = deliveries.subList(0, numToTry);
-
-                    DeliveryPathResponse response = calculatePathForDrone(drone, sp, subset, restrictedAreas);
-
-                    if (response != null) {
-                        // This drone can handle this many deliveries
-                        if (numToTry > maxDeliveries) {
-                            best = new DroneAssignment();
-                            best.droneId = droneId;
-                            best.servicePoint = sp;
-                            best.deliveries = new ArrayList<>(subset);
-                            best.response = response;
-                            maxDeliveries = numToTry;
-                        }
-                        break; // Found max for this drone, try next drone
-                    }
-                }
-            }
-        }
-
-        return best;
-    }
-
-    /**
-     * Filter drones by requirement type (cooling, heating, or standard).
-     */
-    private List<Integer> filterDronesByRequirement(
-            List<Integer> droneIds,
-            List<Drone> allDrones,
-            String requirementType) {
-
-        return droneIds.stream()
-                .map(id -> allDrones.stream()
-                        .filter(d -> d.getId().equals(id))
-                        .findFirst()
-                        .orElse(null))
-                .filter(Objects::nonNull)
-                .filter(drone -> {
-                    if (drone.getCapability() == null) return false;
-
-                    switch (requirementType) {
-                        case "cooling":
-                            return Boolean.TRUE.equals(drone.getCapability().getCooling());
-                        case "heating":
-                            return Boolean.TRUE.equals(drone.getCapability().getHeating());
-                        case "standard":
-                            return true; // Any drone can handle standard deliveries
-                        default:
-                            return false;
-                    }
-                })
-                .map(Drone::getId)
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Helper class to store drone assignment results.
-     */
-    private static class DroneAssignment {
-        Integer droneId;
-        ServicePoint servicePoint;
-        List<MedDispatchRec> deliveries;
-        DeliveryPathResponse response;
-    }
 }
