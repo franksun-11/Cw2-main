@@ -12,6 +12,11 @@ import uk.ac.ed.acp.cw2.dto.QueryCondition;
 import uk.ac.ed.acp.cw2.service.DroneQueryService;
 
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.Arrays;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -128,4 +133,104 @@ public class DroneController {
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * 5) POST /api/v1/calcDeliveryPathAsGeoJson
+     * Calculate optimal delivery path for given dispatches and return as GeoJSON
+     */
+    @PostMapping("/calcDeliveryPathAsGeoJson")
+    public ResponseEntity<String> calcDeliveryPathAsGeoJson(
+            @RequestBody List<MedDispatchRec> dispatches) {
+        
+        logger.info("Request: POST /calcDeliveryPathAsGeoJson with {} dispatches", dispatches.size());
+        logger.debug("Dispatches: {}", dispatches);
+
+        DeliveryPathResponse response = droneQueryService.calcDeliveryPath(dispatches);
+
+        if (response == null || response.getDronePaths() == null || response.getDronePaths().isEmpty()) {
+            logger.warn("Failed to calculate delivery path for GeoJSON");
+            return ResponseEntity.badRequest().build();
+        }
+
+        // Convert to GeoJSON format
+        Map<String, Object> geoJson = new HashMap<>();
+        geoJson.put("type", "FeatureCollection");
+        
+        List<Map<String, Object>> features = new ArrayList<>();
+        
+        // Add path as LineString feature
+        Map<String, Object> lineFeature = new HashMap<>();
+        lineFeature.put("type", "Feature");
+        lineFeature.put("properties", new HashMap<>());
+        
+        Map<String, Object> geometry = new HashMap<>();
+        geometry.put("type", "LineString");
+        
+        List<List<Double>> coordinates = new ArrayList<>();
+        
+        // Collect all coordinates from the first drone path (assuming single drone as per spec)
+        DeliveryPathResponse.DronePath dronePath = response.getDronePaths().get(0);
+        for (DeliveryPathResponse.Delivery delivery : dronePath.getDeliveries()) {
+            for (DeliveryPathResponse.LngLat point : delivery.getFlightPath()) {
+                coordinates.add(Arrays.asList(point.getLng(), point.getLat()));
+            }
+        }
+        
+        geometry.put("coordinates", coordinates);
+        lineFeature.put("geometry", geometry);
+        features.add(lineFeature);
+        
+        // Add delivery points as Point features
+        for (DeliveryPathResponse.Delivery delivery : dronePath.getDeliveries()) {
+            if (!delivery.getFlightPath().isEmpty()) {
+                // Get the delivery location (typically the last or middle point)
+                DeliveryPathResponse.LngLat deliveryPoint = findDeliveryPoint(delivery.getFlightPath());
+                
+                Map<String, Object> pointFeature = new HashMap<>();
+                pointFeature.put("type", "Feature");
+                
+                Map<String, Object> pointProperties = new HashMap<>();
+                pointProperties.put("deliveryId", delivery.getDeliveryId());
+                pointFeature.put("properties", pointProperties);
+                
+                Map<String, Object> pointGeometry = new HashMap<>();
+                pointGeometry.put("type", "Point");
+                pointGeometry.put("coordinates", Arrays.asList(deliveryPoint.getLng(), deliveryPoint.getLat()));
+                
+                pointFeature.put("geometry", pointGeometry);
+                features.add(pointFeature);
+            }
+        }
+        
+        geoJson.put("features", features);
+        
+        // Convert to JSON string
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            String geoJsonString = mapper.writeValueAsString(geoJson);
+            
+            logger.info("Successfully generated GeoJSON delivery path");
+            return ResponseEntity.ok(geoJsonString);
+        } catch (Exception e) {
+            logger.error("Error generating GeoJSON", e);
+            return ResponseEntity.status(500).build();
+        }
+    }
+    
+    /**
+     * Find the delivery point in a flight path (where the drone hovers to deliver)
+     */
+    private DeliveryPathResponse.LngLat findDeliveryPoint(List<DeliveryPathResponse.LngLat> flightPath) {
+        // Look for consecutive duplicate points which indicate a hover/delivery
+        for (int i = 0; i < flightPath.size() - 1; i++) {
+            DeliveryPathResponse.LngLat point1 = flightPath.get(i);
+            DeliveryPathResponse.LngLat point2 = flightPath.get(i + 1);
+            
+            if (point1.getLng().equals(point2.getLng()) && point1.getLat().equals(point2.getLat())) {
+                return point1;
+            }
+        }
+        
+        // If no hover point found, return the last point
+        return flightPath.get(flightPath.size() - 1);
+    }
 }

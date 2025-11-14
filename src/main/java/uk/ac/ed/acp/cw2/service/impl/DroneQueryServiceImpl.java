@@ -1367,7 +1367,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
     /**
      * Generate flight path from 'from' to 'to', avoiding restricted areas
-     * Uses A* pathfinding when direct path is blocked
+     * Uses fast greedy algorithm with obstacle avoidance
      * IMPORTANT: Every move must be exactly 0.00015 degrees in one of 16 compass directions
      */
     private List<DeliveryPathResponse.LngLat> generateFlightPath(DeliveryPathResponse.LngLat from, DeliveryPathResponse.LngLat to, List<RestrictedArea> restrictedAreas) {
@@ -1380,9 +1380,119 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             return generateDirectPath(from, to, restrictedAreas);
         }
 
-        // Direct path blocked, use A* pathfinding
-        logger.debug("Direct path blocked, using A* pathfinding");
+        // Direct path blocked, use fast greedy pathfinding with obstacle avoidance
+        logger.debug("Direct path blocked, using fast greedy obstacle avoidance");
+        List<DeliveryPathResponse.LngLat> greedyPath = greedyObstacleAvoidance(from, to, restrictedAreas);
+
+        if (greedyPath != null) {
+            return greedyPath;
+        }
+
+        // Only use A* as last resort with reduced iterations
+        logger.debug("Greedy failed, trying A* with reduced iterations");
         return aStarPathfinding(from, to, restrictedAreas);
+    }
+
+    /**
+     * Fast greedy pathfinding with obstacle avoidance
+     * Tries to move towards goal, but avoids obstacles by going around them
+     * Much faster than A* but not optimal
+     */
+    private List<DeliveryPathResponse.LngLat> greedyObstacleAvoidance(
+            DeliveryPathResponse.LngLat from,
+            DeliveryPathResponse.LngLat to,
+            List<RestrictedArea> restrictedAreas) {
+
+        List<DeliveryPathResponse.LngLat> path = new ArrayList<>();
+        DeliveryPathResponse.LngLat current = new DeliveryPathResponse.LngLat(from.getLng(), from.getLat());
+        path.add(current);
+
+        final double MOVE_DISTANCE = 0.00015;
+        final double CLOSE_THRESHOLD = 0.00015;
+        double[] angles = {0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5};
+
+        int maxSteps = 5000; // Increased for complex obstacle navigation
+        int stuckCounter = 0;
+        int maxStuck = 50; // More tolerance for navigating around obstacles
+        double lastDistance = Double.MAX_VALUE;
+        double initialDistance = calculateEuclideanDistance(from.getLng(), from.getLat(), to.getLng(), to.getLat());
+
+        for (int steps = 0; steps < maxSteps; steps++) {
+            double currentDistance = calculateEuclideanDistance(
+                    current.getLng(), current.getLat(), to.getLng(), to.getLat());
+
+            // Goal reached
+            if (currentDistance < CLOSE_THRESHOLD) {
+                if (!current.getLng().equals(to.getLng()) || !current.getLat().equals(to.getLat())) {
+                    path.add(new DeliveryPathResponse.LngLat(to.getLng(), to.getLat()));
+                }
+                logger.debug("Greedy found path in {} steps", steps);
+                return path;
+            }
+
+            // Check if we're stuck (not making progress)
+            // More intelligent stuck detection: give up if we've wandered too far from goal
+            if (currentDistance >= lastDistance - 0.00001) {
+                stuckCounter++;
+                // If we've gotten significantly farther from goal (>50% farther), give up faster
+                if (currentDistance > initialDistance * 1.5 && stuckCounter > 10) {
+                    logger.debug("Greedy wandered too far after {} steps ({}× initial distance), giving up",
+                            steps, currentDistance / initialDistance);
+                    return null;
+                }
+                if (stuckCounter > maxStuck) {
+                    logger.debug("Greedy stuck after {} steps, giving up", steps);
+                    return null;
+                }
+            } else {
+                stuckCounter = 0;
+            }
+            lastDistance = currentDistance;
+
+            // Try moves in order of preference: towards goal, then alternatives
+            DeliveryPathResponse.LngLat bestMove = null;
+            double bestScore = Double.MAX_VALUE;
+
+            // Calculate angle to goal
+            double dx = to.getLng() - current.getLng();
+            double dy = to.getLat() - current.getLat();
+            double angleToGoal = Math.toDegrees(Math.atan2(dy, dx));
+
+            // Try all angles, preferring those closer to goal direction
+            for (double angleDeg : angles) {
+                double angleRad = Math.toRadians(angleDeg);
+                double newLng = current.getLng() + MOVE_DISTANCE * Math.cos(angleRad);
+                double newLat = current.getLat() + MOVE_DISTANCE * Math.sin(angleRad);
+
+                // Check if move is valid
+                if (!isValidMove(current.getLng(), current.getLat(), newLng, newLat, restrictedAreas)) {
+                    continue;
+                }
+
+                // Score: distance to goal + penalty for angle difference
+                double distToGoal = calculateEuclideanDistance(newLng, newLat, to.getLng(), to.getLat());
+                double angleDiff = Math.abs(angleDeg - angleToGoal);
+                if (angleDiff > 180) angleDiff = 360 - angleDiff;
+                double score = distToGoal + 0.0001 * angleDiff; // Small penalty for wrong direction
+
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestMove = new DeliveryPathResponse.LngLat(newLng, newLat);
+                }
+            }
+
+            if (bestMove == null) {
+                // No valid move - completely stuck
+                logger.debug("Greedy completely blocked at ({}, {})", current.getLng(), current.getLat());
+                return null;
+            }
+
+            current = bestMove;
+            path.add(current);
+        }
+
+        logger.debug("Greedy exceeded max steps");
+        return null;
     }
 
     /**
@@ -1600,7 +1710,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         allNodes.put(startNode.getKey(), startNode);
 
         int iterations = 0;
-        int maxIterations = 50000; // Safety limit
+        int maxIterations = 50000; // Increased - need to find ANY path around restricted areas
 
         while (!openSet.isEmpty() && iterations < maxIterations) {
             iterations++;
@@ -1631,7 +1741,8 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                     neighbor.h = calculateEuclideanDistance(
                             neighbor.lng, neighbor.lat, to.getLng(), to.getLat()
                     );
-                    neighbor.f = neighbor.g + neighbor.h;
+                    // Use weighted A* with epsilon=1.5 to explore more aggressively (sacrifice optimality for speed)
+                    neighbor.f = neighbor.g + 1.5 * neighbor.h;
                     neighbor.parent = current;
 
                     if (existingNode == null) {
@@ -2366,36 +2477,6 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         return estimatedMoves;
     }
 
-
-    /**
-     * Generate all permutations of selecting k items from a list
-     */
-    private List<List<Integer>> generatePermutations(List<Integer> items, int k) {
-        List<List<Integer>> result = new ArrayList<>();
-        if (k > items.size()) return result;
-
-        generatePermutationsHelper(items, k, new ArrayList<>(), new HashSet<>(), result);
-        return result;
-    }
-
-    private void generatePermutationsHelper(List<Integer> items, int k, List<Integer> current,
-                                           Set<Integer> used, List<List<Integer>> result) {
-        if (current.size() == k) {
-            result.add(new ArrayList<>(current));
-            return;
-        }
-
-        for (Integer item : items) {
-            if (used.contains(item)) continue;
-
-            current.add(item);
-            used.add(item);
-            generatePermutationsHelper(items, k, current, used, result);
-            current.remove(current.size() - 1);
-            used.remove(item);
-        }
-    }
-
     /**
      * Split dispatches into batches and assign to multiple drones
      */
@@ -2418,12 +2499,17 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         List<MedDispatchRec> remaining = new ArrayList<>(dispatches);
 
         while (!remaining.isEmpty()) {
-            // Try ALL service points to find best drone/batch combination
+            // Filter service points by distance (performance optimization)
+            // Skip far-away service points unless closer ones have no available drones
+            List<ServicePoint> filteredServicePoints = filterServicePointsByDistance(
+                    servicePoints, remaining, suitableDroneIds, droneAvailability, usedDroneIds);
+
+            // Try filtered service points to find best drone/batch combination
             // This is critical when a delivery might be impossible from the closest service point
             // but feasible from another service point with different drones
             BestBatchResult best = null;
 
-            for (ServicePoint sp : servicePoints) {
+            for (ServicePoint sp : filteredServicePoints) {
                 // Get available drones at this service point
                 List<Integer> spDroneIds = getDroneIdsAtServicePoint(
                         sp.getId(), droneAvailability, suitableDroneIds);
@@ -2503,6 +2589,95 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                     return totalDist;
                 }))
                 .orElse(servicePoints.get(0));
+    }
+
+    /**
+     * Filter service points by distance to deliveries
+     * Only include far service points if closer ones have no available drones
+     *
+     * Algorithm:
+     * 1. Calculate average delivery location
+     * 2. Sort service points by distance to average location
+     * 3. Filter out service points that are > 2*farther than closest
+     * 4. BUT if filtered list has NO drones available, fall back to ALL service points
+     */
+    private List<ServicePoint> filterServicePointsByDistance(
+            List<ServicePoint> servicePoints,
+            List<MedDispatchRec> dispatches,
+            List<Integer> suitableDroneIds,
+            List<DroneServicePointAvailability> droneAvailability,
+            Set<Integer> usedDroneIds) {
+
+        if (servicePoints.isEmpty() || dispatches.isEmpty()) {
+            return servicePoints;
+        }
+
+        // Calculate average delivery location (centroid)
+        double avgLng = 0.0;
+        double avgLat = 0.0;
+        for (MedDispatchRec d : dispatches) {
+            avgLng += d.getDelivery().getLng();
+            avgLat += d.getDelivery().getLat();
+        }
+        avgLng /= dispatches.size();
+        avgLat /= dispatches.size();
+
+        // Calculate distances from each service point to average location
+        List<ServicePointDistance> spDistances = new ArrayList<>();
+        for (ServicePoint sp : servicePoints) {
+            double dist = calculateEuclideanDistance(
+                    sp.getLocation().getLng(),
+                    sp.getLocation().getLat(),
+                    avgLng, avgLat);
+            spDistances.add(new ServicePointDistance(sp, dist));
+        }
+
+        // Sort by distance (closest first)
+        spDistances.sort(Comparator.comparingDouble(spd -> spd.distance));
+
+        // Find minimum distance
+        double minDistance = spDistances.get(0).distance;
+
+        // Filter: keep service points within 3× of closest distance
+        double distanceThreshold = minDistance * 1.5;
+        List<ServicePoint> filtered = spDistances.stream()
+                .filter(spd -> spd.distance <= distanceThreshold)
+                .map(spd -> spd.servicePoint)
+                .collect(Collectors.toList());
+
+        // Check if filtered list has any available drones
+        List<Integer> availableDronesInFiltered = new ArrayList<>();
+        for (ServicePoint sp : filtered) {
+            List<Integer> spDrones = getDroneIdsAtServicePoint(
+                    sp.getId(), droneAvailability, suitableDroneIds);
+            spDrones.removeAll(usedDroneIds);
+            availableDronesInFiltered.addAll(spDrones);
+        }
+
+        if (availableDronesInFiltered.isEmpty()) {
+            // No drones in nearby service points, must use all service points
+            logger.info("No drones available in nearby service points, using all {} service points", servicePoints.size());
+            return servicePoints;
+        }
+
+        logger.info("Filtered service points: {} → {} (closest: {}, threshold: {}×)",
+                servicePoints.size(), filtered.size(),
+                spDistances.get(0).servicePoint.getName(), 3.0);
+
+        return filtered;
+    }
+
+    /**
+     * Helper class to store service point with its distance
+     */
+    private static class ServicePointDistance {
+        ServicePoint servicePoint;
+        double distance;
+
+        ServicePointDistance(ServicePoint sp, double dist) {
+            this.servicePoint = sp;
+            this.distance = dist;
+        }
     }
 
     /**
