@@ -313,9 +313,8 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 logger.info("✓ Using multi-drone solution (single-drone not possible)");
                 return multiDroneResponse;
             }
-
-            logger.warn("No valid delivery path found (neither single nor multi-drone)");
-            return null;
+            logger.warn("No valid delivery path found (all strategies failed)");
+            return createEmptyResponse();
 
         } catch (Exception e) {
             logger.error("Error calculating delivery path", e);
@@ -1387,25 +1386,27 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             return generateDirectPath(from, to, restrictedAreas);
         }
 
-        // Direct path blocked, use fast greedy pathfinding with obstacle avoidance
-        logger.debug("Direct path blocked, using fast greedy obstacle avoidance");
-        List<DeliveryPathResponse.LngLat> greedyPath = greedyObstacleAvoidance(from, to, restrictedAreas);
+        // Strategy 2: Try A* pathfinding (optimal but slower)
+        logger.debug("Direct path blocked, trying A* pathfinding");
+        List<DeliveryPathResponse.LngLat> astarPath = aStarPathfinding(from, to, restrictedAreas);
 
-        if (greedyPath != null) {
-            return greedyPath;
+        if (astarPath != null) {
+            return astarPath;
         }
 
-        // Only use A* as last resort with reduced iterations
-        logger.debug("Greedy failed, trying A* with reduced iterations");
-        return aStarPathfinding(from, to, restrictedAreas);
+        // Strategy 3: Last resort - quick boundary-following pathfinder (always finds a path if possible)
+        logger.warn("A* failed, using last resort quick pathfinder with boundary following");
+        return quickPathFinder(from, to, restrictedAreas);
     }
 
     /**
-     * Fast greedy pathfinding with obstacle avoidance
-     * Tries to move towards goal, but avoids obstacles by going around them
-     * Much faster than A* but not optimal
+     * Quick pathfinder with boundary following (last resort fallback)
+     * Always tries to find a path by:
+     * 1. Moving greedily toward goal
+     * 2. When blocked by restricted area, follow the boundary until can continue toward goal
+     * 3. Uses visited set to prevent getting stuck in cycles
      */
-    private List<DeliveryPathResponse.LngLat> greedyObstacleAvoidance(
+    private List<DeliveryPathResponse.LngLat> quickPathFinder(
             DeliveryPathResponse.LngLat from,
             DeliveryPathResponse.LngLat to,
             List<RestrictedArea> restrictedAreas) {
@@ -1418,11 +1419,14 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         final double CLOSE_THRESHOLD = 0.00015;
         double[] angles = {0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5};
 
-        int maxSteps = 5000; // Increased for complex obstacle navigation
-        int stuckCounter = 0;
-        int maxStuck = 50; // More tolerance for navigating around obstacles
-        double lastDistance = Double.MAX_VALUE;
-        double initialDistance = calculateEuclideanDistance(from.getLng(), from.getLat(), to.getLng(), to.getLat());
+        // Use visited set to prevent cycles - key is rounded position to 10 decimal places
+        Set<String> visited = new HashSet<>();
+        visited.add(String.format("%.10f,%.10f", current.getLng(), current.getLat()));
+
+        int maxSteps = 5000;
+        int stuckCounter = 0; // Count how many steps we haven't made progress
+        double lastBestDistance = calculateEuclideanDistance(
+                current.getLng(), current.getLat(), to.getLng(), to.getLat());
 
         for (int steps = 0; steps < maxSteps; steps++) {
             double currentDistance = calculateEuclideanDistance(
@@ -1433,39 +1437,33 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 if (!current.getLng().equals(to.getLng()) || !current.getLat().equals(to.getLat())) {
                     path.add(new DeliveryPathResponse.LngLat(to.getLng(), to.getLat()));
                 }
-                logger.debug("Greedy found path in {} steps", steps);
+                logger.info("Quick pathfinder found path in {} steps", steps);
                 return path;
             }
 
-            // Check if we're stuck (not making progress)
-            // More intelligent stuck detection: give up if we've wandered too far from goal
-            if (currentDistance >= lastDistance - 0.00001) {
+            // Check if we're making progress
+            if (currentDistance >= lastBestDistance - 0.000001) {
                 stuckCounter++;
-                // If we've gotten significantly farther from goal (>50% farther), give up faster
-                if (currentDistance > initialDistance * 1.5 && stuckCounter > 10) {
-                    logger.debug("Greedy wandered too far after {} steps ({}× initial distance), giving up",
-                            steps, currentDistance / initialDistance);
-                    return null;
-                }
-                if (stuckCounter > maxStuck) {
-                    logger.debug("Greedy stuck after {} steps, giving up", steps);
+                if (stuckCounter > 500) {
+                    // Not making progress for 500 steps - likely impossible
+                    logger.warn("Quick pathfinder stuck (no progress for {} steps)", stuckCounter);
                     return null;
                 }
             } else {
+                // Made progress - reset counter and update best distance
                 stuckCounter = 0;
+                lastBestDistance = currentDistance;
             }
-            lastDistance = currentDistance;
 
-            // Try moves in order of preference: towards goal, then alternatives
-            DeliveryPathResponse.LngLat bestMove = null;
-            double bestScore = Double.MAX_VALUE;
-
-            // Calculate angle to goal
+            // Try to move toward goal first
             double dx = to.getLng() - current.getLng();
             double dy = to.getLat() - current.getLat();
             double angleToGoal = Math.toDegrees(Math.atan2(dy, dx));
 
-            // Try all angles, preferring those closer to goal direction
+            // Try all moves, prioritize by distance to goal
+            DeliveryPathResponse.LngLat bestMove = null;
+            double bestScore = Double.MAX_VALUE;
+
             for (double angleDeg : angles) {
                 double angleRad = Math.toRadians(angleDeg);
                 double newLng = current.getLng() + MOVE_DISTANCE * Math.cos(angleRad);
@@ -1476,11 +1474,18 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                     continue;
                 }
 
-                // Score: distance to goal + penalty for angle difference
+                // Check if we've been to this position before
+                String posKey = String.format("%.10f,%.10f", newLng, newLat);
+                if (visited.contains(posKey)) {
+                    continue; // Skip visited positions to avoid cycles
+                }
+
+                // Score: prioritize getting closer to goal
                 double distToGoal = calculateEuclideanDistance(newLng, newLat, to.getLng(), to.getLat());
                 double angleDiff = Math.abs(angleDeg - angleToGoal);
                 if (angleDiff > 180) angleDiff = 360 - angleDiff;
-                double score = distToGoal + 0.0001 * angleDiff; // Small penalty for wrong direction
+
+                double score = distToGoal + angleDiff * 0.0001; // Prioritize distance, small penalty for wrong direction
 
                 if (score < bestScore) {
                     bestScore = score;
@@ -1489,16 +1494,18 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             }
 
             if (bestMove == null) {
-                // No valid move - completely stuck
-                logger.debug("Greedy completely blocked at ({}, {})", current.getLng(), current.getLat());
+                // No valid unvisited moves - path is impossible
+                logger.error("Quick pathfinder has no valid unvisited moves at ({}, {}) after {} steps",
+                        current.getLng(), current.getLat(), steps);
                 return null;
             }
 
             current = bestMove;
             path.add(current);
+            visited.add(String.format("%.10f,%.10f", current.getLng(), current.getLat()));
         }
 
-        logger.debug("Greedy exceeded max steps");
+        logger.error("Quick pathfinder exceeded max steps ({})", maxSteps);
         return null;
     }
 
@@ -2066,7 +2073,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 // If single drone fails (maxMoves exceeded), split into batches
                 DeliveryPathResponse multiDroneResult = null;
                 if (singleDroneResult == null) {
-                    logger.info("Single-drone failed (likely maxMoves exceeded), trying multi-drone batches");
+                    logger.info("Single-drone failed , trying multi-drone batches");
                     multiDroneResult = splitIntoBatches(
                             dailyDispatches, suitableDroneIds, allDrones, servicePoints,
                             droneAvailability, restrictedAreas, new HashSet<>(usedDroneIds));
@@ -2107,7 +2114,6 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
         return response;
     }
-
 
     /**
      * Check if drone meets dispatch requirements (cooling/heating)
@@ -2286,8 +2292,15 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         int bestMoves = Integer.MAX_VALUE;
         Integer bestDroneId = null;
 
+        // Filter service points by distance to avoid wasting time on far-away drones
+        List<ServicePoint> filteredServicePoints = filterServicePointsByDistance(
+                servicePoints, dispatches, suitableDroneIds, droneAvailability, usedDroneIds);
+
+        logger.info("Filtered service points for trySingleDroneSolution: {} → {}",
+                servicePoints.size(), filteredServicePoints.size());
+
         // Try all suitable drones and pick the one with minimum moves
-        for (ServicePoint sp : servicePoints) {
+        for (ServicePoint sp : filteredServicePoints) {
             List<Integer> spDroneIds = getDroneIdsAtServicePoint(
                     sp.getId(), droneAvailability, suitableDroneIds);
 
