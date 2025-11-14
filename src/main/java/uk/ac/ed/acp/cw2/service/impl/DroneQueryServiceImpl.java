@@ -1399,113 +1399,122 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         return quickPathFinder(from, to, restrictedAreas);
     }
 
+
     /**
-     * Quick pathfinder with boundary following (last resort fallback)
-     * Always tries to find a path by:
-     * 1. Moving greedily toward goal
-     * 2. When blocked by restricted area, follow the boundary until can continue toward goal
-     * 3. Uses visited set to prevent getting stuck in cycles
+     * RRT (Rapidly-exploring Random Tree) Pathfinder
+     * Uses random sampling to quickly find ANY valid path around obstacles
+     * Excellent for complex restricted areas and perpendicular paths (no directional bias)
+     * No optimization - just finds a path fast!
      */
     private List<DeliveryPathResponse.LngLat> quickPathFinder(
             DeliveryPathResponse.LngLat from,
             DeliveryPathResponse.LngLat to,
             List<RestrictedArea> restrictedAreas) {
 
-        List<DeliveryPathResponse.LngLat> path = new ArrayList<>();
-        DeliveryPathResponse.LngLat current = new DeliveryPathResponse.LngLat(from.getLng(), from.getLat());
-        path.add(current);
-
         final double MOVE_DISTANCE = 0.00015;
         final double CLOSE_THRESHOLD = 0.00015;
-        double[] angles = {0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5};
+        final int MAX_ITERATIONS = 5000;
+        final double GOAL_SAMPLE_RATE = 0.3; // 30% chance to sample goal directly
 
-        // Use visited set to prevent cycles - key is rounded position to 10 decimal places
-        Set<String> visited = new HashSet<>();
-        visited.add(String.format("%.10f,%.10f", current.getLng(), current.getLat()));
+        Random random = new Random();
 
-        int maxSteps = 5000;
-        int stuckCounter = 0; // Count how many steps we haven't made progress
-        double lastBestDistance = calculateEuclideanDistance(
-                current.getLng(), current.getLat(), to.getLng(), to.getLat());
+        // Tree node for RRT
+        class RRTNode {
+            double lng;
+            double lat;
+            RRTNode parent;
 
-        for (int steps = 0; steps < maxSteps; steps++) {
-            double currentDistance = calculateEuclideanDistance(
-                    current.getLng(), current.getLat(), to.getLng(), to.getLat());
-
-            // Goal reached
-            if (currentDistance < CLOSE_THRESHOLD) {
-                if (!current.getLng().equals(to.getLng()) || !current.getLat().equals(to.getLat())) {
-                    path.add(new DeliveryPathResponse.LngLat(to.getLng(), to.getLat()));
-                }
-                logger.info("Quick pathfinder found path in {} steps", steps);
-                return path;
+            RRTNode(double lng, double lat, RRTNode parent) {
+                this.lng = lng;
+                this.lat = lat;
+                this.parent = parent;
             }
-
-            // Check if we're making progress
-            if (currentDistance >= lastBestDistance - 0.000001) {
-                stuckCounter++;
-                if (stuckCounter > 500) {
-                    // Not making progress for 500 steps - likely impossible
-                    logger.warn("Quick pathfinder stuck (no progress for {} steps)", stuckCounter);
-                    return null;
-                }
-            } else {
-                // Made progress - reset counter and update best distance
-                stuckCounter = 0;
-                lastBestDistance = currentDistance;
-            }
-
-            // Try to move toward goal first
-            double dx = to.getLng() - current.getLng();
-            double dy = to.getLat() - current.getLat();
-            double angleToGoal = Math.toDegrees(Math.atan2(dy, dx));
-
-            // Try all moves, prioritize by distance to goal
-            DeliveryPathResponse.LngLat bestMove = null;
-            double bestScore = Double.MAX_VALUE;
-
-            for (double angleDeg : angles) {
-                double angleRad = Math.toRadians(angleDeg);
-                double newLng = current.getLng() + MOVE_DISTANCE * Math.cos(angleRad);
-                double newLat = current.getLat() + MOVE_DISTANCE * Math.sin(angleRad);
-
-                // Check if move is valid
-                if (!isValidMove(current.getLng(), current.getLat(), newLng, newLat, restrictedAreas)) {
-                    continue;
-                }
-
-                // Check if we've been to this position before
-                String posKey = String.format("%.10f,%.10f", newLng, newLat);
-                if (visited.contains(posKey)) {
-                    continue; // Skip visited positions to avoid cycles
-                }
-
-                // Score: prioritize getting closer to goal
-                double distToGoal = calculateEuclideanDistance(newLng, newLat, to.getLng(), to.getLat());
-                double angleDiff = Math.abs(angleDeg - angleToGoal);
-                if (angleDiff > 180) angleDiff = 360 - angleDiff;
-
-                double score = distToGoal + angleDiff * 0.0001; // Prioritize distance, small penalty for wrong direction
-
-                if (score < bestScore) {
-                    bestScore = score;
-                    bestMove = new DeliveryPathResponse.LngLat(newLng, newLat);
-                }
-            }
-
-            if (bestMove == null) {
-                // No valid unvisited moves - path is impossible
-                logger.error("Quick pathfinder has no valid unvisited moves at ({}, {}) after {} steps",
-                        current.getLng(), current.getLat(), steps);
-                return null;
-            }
-
-            current = bestMove;
-            path.add(current);
-            visited.add(String.format("%.10f,%.10f", current.getLng(), current.getLat()));
         }
 
-        logger.error("Quick pathfinder exceeded max steps ({})", maxSteps);
+        // Initialize tree with start node
+        List<RRTNode> tree = new ArrayList<>();
+        RRTNode startNode = new RRTNode(from.getLng(), from.getLat(), null);
+        tree.add(startNode);
+
+        // Calculate exploration bounds (area around start and goal)
+        double minLng = Math.min(from.getLng(), to.getLng()) - 0.01;
+        double maxLng = Math.max(from.getLng(), to.getLng()) + 0.01;
+        double minLat = Math.min(from.getLat(), to.getLat()) - 0.01;
+        double maxLat = Math.max(from.getLat(), to.getLat()) + 0.01;
+
+        for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+            // Step 1: Sample random point (or goal with probability)
+            double sampleLng, sampleLat;
+            if (random.nextDouble() < GOAL_SAMPLE_RATE) {
+                // Sample goal to bias exploration toward target
+                sampleLng = to.getLng();
+                sampleLat = to.getLat();
+            } else {
+                // Random sample in exploration area
+                sampleLng = minLng + random.nextDouble() * (maxLng - minLng);
+                sampleLat = minLat + random.nextDouble() * (maxLat - minLat);
+            }
+
+            // Step 2: Find nearest node in tree to sample
+            RRTNode nearest = null;
+            double minDist = Double.MAX_VALUE;
+            for (RRTNode node : tree) {
+                double dist = calculateEuclideanDistance(node.lng, node.lat, sampleLng, sampleLat);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = node;
+                }
+            }
+
+            if (nearest == null) continue;
+
+            // Step 3: Steer from nearest toward sample (max distance = MOVE_DISTANCE)
+            double dx = sampleLng - nearest.lng;
+            double dy = sampleLat - nearest.lat;
+            double dist = Math.sqrt(dx * dx + dy * dy);
+
+            // Snap to nearest valid compass direction (16 directions)
+            double angle = Math.atan2(dy, dx);
+            double angleDeg = Math.toDegrees(angle);
+            double snapAngle = Math.round(angleDeg / 22.5) * 22.5;
+            double snapRad = Math.toRadians(snapAngle);
+
+            double newLng = nearest.lng + MOVE_DISTANCE * Math.cos(snapRad);
+            double newLat = nearest.lat + MOVE_DISTANCE * Math.sin(snapRad);
+
+            // Step 4: Check if new node is valid (not in restricted area)
+            if (!isValidMove(nearest.lng, nearest.lat, newLng, newLat, restrictedAreas)) {
+                continue;
+            }
+
+            // Step 5: Add new node to tree
+            RRTNode newNode = new RRTNode(newLng, newLat, nearest);
+            tree.add(newNode);
+
+            // Step 6: Check if we reached goal
+            double distToGoal = calculateEuclideanDistance(newLng, newLat, to.getLng(), to.getLat());
+            if (distToGoal < CLOSE_THRESHOLD) {
+                // Goal reached! Reconstruct path
+                logger.info("RRT found path in {} iterations, tree size: {}", iteration, tree.size());
+
+                List<DeliveryPathResponse.LngLat> path = new ArrayList<>();
+                RRTNode current = newNode;
+                while (current != null) {
+                    path.add(0, new DeliveryPathResponse.LngLat(current.lng, current.lat));
+                    current = current.parent;
+                }
+
+                // Add exact goal if not already there
+                DeliveryPathResponse.LngLat lastPoint = path.get(path.size() - 1);
+                if (!lastPoint.getLng().equals(to.getLng()) || !lastPoint.getLat().equals(to.getLat())) {
+                    path.add(new DeliveryPathResponse.LngLat(to.getLng(), to.getLat()));
+                }
+
+                return path;
+            }
+        }
+
+        logger.warn("RRT failed to find path after {} iterations (tree size: {})", MAX_ITERATIONS, tree.size());
         return null;
     }
 
@@ -1724,7 +1733,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         allNodes.put(startNode.getKey(), startNode);
 
         int iterations = 0;
-        int maxIterations = 50000; // Increased - need to find ANY path around restricted areas
+        int maxIterations = 10000; // Increased - need to find ANY path around restricted areas
 
         while (!openSet.isEmpty() && iterations < maxIterations) {
             iterations++;
