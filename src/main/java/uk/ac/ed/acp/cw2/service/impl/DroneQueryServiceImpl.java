@@ -1028,6 +1028,9 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         // Track moves per dispatch for cost calculation
         Map<Integer, Integer> movesPerDispatch = new HashMap<>();
 
+        // Track moves per date for cost calculation (each date = separate flight)
+        Map<LocalDate, Integer> movesPerDate = new HashMap<>();
+
         // Process each day's dispatches separately, IN DATE ORDER
         List<LocalDate> sortedDates = dispatchByDate.keySet().stream()
                 .sorted()
@@ -1043,6 +1046,8 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
             // Generate flight path for this day's deliveries
             DeliveryPathResponse.LngLat currentLocation = new DeliveryPathResponse.LngLat(servicePoint.getLocation().getLng(), servicePoint.getLocation().getLat());
+
+            int movesForThisDate = 0; // Track moves for this day's flight
 
             for (int i = 0; i < optimiseOrder.size(); i++) {
                 MedDispatchRec dispatch = optimiseOrder.get(i);
@@ -1099,6 +1104,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 // Each step in the path counts as 1 move, including the hover
                 int movesForThisDelivery = path.size() - 1; // Total positions minus 1 = total moves
                 totalMoves += movesForThisDelivery;
+                movesForThisDate += movesForThisDelivery;
 
                 // Track moves for this dispatch for cost calculation
                 movesPerDispatch.put(dispatch.getId(), movesForThisDelivery);
@@ -1114,6 +1120,9 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 logger.debug("Generated path for delivery {} with {} moves",
                         dispatch.getId(), movesForThisDelivery);
             }
+
+            // Store total moves for this date's flight
+            movesPerDate.put(date, movesForThisDate);
         }
 
         // Validate total moves against drone's limit
@@ -1123,20 +1132,34 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             return null;
         }
 
-        // calculate total cost
-        double totalCost = calculateTotalCost(drone.getCapability(), totalMoves);
-
-        // Validate maxCost for each dispatch
-        // Fixed costs (initial + final) are split equally among dispatches
-        // Move costs are calculated per dispatch based on actual moves
-        int numDispatches = dispatches.size();
+        // Calculate total cost - each date is a separate flight with its own fixed costs
         double costInitial = drone.getCapability().getCostInitial() != null ?
                 drone.getCapability().getCostInitial() : 0.0;
         double costFinal = drone.getCapability().getCostFinal() != null ?
                 drone.getCapability().getCostFinal() : 0.0;
         double costPerMove = drone.getCapability().getCostPerMove() != null ?
                 drone.getCapability().getCostPerMove() : 0.0;
-        double fixedCostPerDispatch = (costInitial + costFinal) / numDispatches;
+
+        double totalCost = 0.0;
+        int numFlights = sortedDates.size();
+
+        // Each date is a separate flight, so charge fixed costs per date
+        for (LocalDate date : sortedDates) {
+            int movesForFlight = movesPerDate.get(date);
+            double flightCost = costInitial + (costPerMove * movesForFlight) + costFinal;
+            totalCost += flightCost;
+            logger.debug("Flight on {}: {} moves, cost: {}", date, movesForFlight, flightCost);
+        }
+
+        logger.debug("Total cost across {} flights: {}", numFlights, totalCost);
+
+        // Validate maxCost for each dispatch
+        // IMPORTANT: For multi-date deliveries, fixed costs are charged PER FLIGHT (per date)
+        // But for maxCost validation, we need to allocate costs fairly across dispatches
+        // Use total fixed costs / num dispatches for validation
+        int numDispatches = dispatches.size();
+        double totalFixedCosts = costInitial * numFlights + costFinal * numFlights;
+        double fixedCostPerDispatch = totalFixedCosts / numDispatches;
 
         for (MedDispatchRec dispatch : dispatches) {
             if (dispatch.getRequirements().getMaxCost() != null) {
@@ -2409,28 +2432,6 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         response.setTotalMoves(totalMoves);
         response.setDronePaths(allPaths);
         return response;
-    }
-
-    /**
-     * Find the service point closest to a group of dispatches
-     */
-    private ServicePoint findClosestServicePoint(
-            List<MedDispatchRec> dispatches,
-            List<ServicePoint> servicePoints) {
-
-        return servicePoints.stream()
-                .min(Comparator.comparingDouble(sp -> {
-                    double totalDist = 0;
-                    for (MedDispatchRec d : dispatches) {
-                        totalDist += calculateEuclideanDistance(
-                                sp.getLocation().getLng(),
-                                sp.getLocation().getLat(),
-                                d.getDelivery().getLng(),
-                                d.getDelivery().getLat());
-                    }
-                    return totalDist;
-                }))
-                .orElse(servicePoints.get(0));
     }
 
     /**
