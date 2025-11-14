@@ -184,7 +184,14 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
             // Try single-drone solution if there are drones that can handle all dispatches
             if (!availableDroneIds.isEmpty()) {
-                for (ServicePoint sp : servicePoints) {
+                // Filter service points by distance to avoid wasting time on far-away drones
+                List<ServicePoint> filteredServicePoints = filterServicePointsByDistance(
+                        servicePoints, dispatches, availableDroneIds, droneAvailability, new HashSet<>());
+
+                logger.info("Filtered service points for single-drone: {} → {}",
+                        servicePoints.size(), filteredServicePoints.size());
+
+                for (ServicePoint sp : filteredServicePoints) {
                     // Get drones available at this service point
                     List<Integer> droneIdsAtSp = getDroneIdsAtServicePoint(sp.getId(), droneAvailability, availableDroneIds);
 
@@ -2598,7 +2605,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
      * Algorithm:
      * 1. Calculate average delivery location
      * 2. Sort service points by distance to average location
-     * 3. Filter out service points that are > 2*farther than closest
+     * 3. Filter out service points that are > 3* farther than closest
      * 4. BUT if filtered list has NO drones available, fall back to ALL service points
      */
     private List<ServicePoint> filterServicePointsByDistance(
@@ -2639,7 +2646,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         double minDistance = spDistances.get(0).distance;
 
         // Filter: keep service points within 3× of closest distance
-        double distanceThreshold = minDistance * 1.5;
+        double distanceThreshold = minDistance * 3.0;
         List<ServicePoint> filtered = spDistances.stream()
                 .filter(spd -> spd.distance <= distanceThreshold)
                 .map(spd -> spd.servicePoint)

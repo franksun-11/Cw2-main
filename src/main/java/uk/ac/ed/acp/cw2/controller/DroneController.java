@@ -140,7 +140,7 @@ public class DroneController {
     @PostMapping("/calcDeliveryPathAsGeoJson")
     public ResponseEntity<String> calcDeliveryPathAsGeoJson(
             @RequestBody List<MedDispatchRec> dispatches) {
-        
+
         logger.info("Request: POST /calcDeliveryPathAsGeoJson with {} dispatches", dispatches.size());
         logger.debug("Dispatches: {}", dispatches);
 
@@ -154,66 +154,123 @@ public class DroneController {
         // Convert to GeoJSON format
         Map<String, Object> geoJson = new HashMap<>();
         geoJson.put("type", "FeatureCollection");
-        
+
         List<Map<String, Object>> features = new ArrayList<>();
-        
+
+        // 首先添加服务点标记（起点）
+        DeliveryPathResponse.DronePath dronePath = response.getDronePaths().get(0);
+        if (!dronePath.getDeliveries().isEmpty() && !dronePath.getDeliveries().get(0).getFlightPath().isEmpty()) {
+            // 获取路径的起点（服务点位置）
+            DeliveryPathResponse.LngLat startPoint = dronePath.getDeliveries().get(0).getFlightPath().get(0);
+
+            Map<String, Object> servicePointFeature = new HashMap<>();
+            servicePointFeature.put("type", "Feature");
+
+            Map<String, Object> spProperties = new HashMap<>();
+            spProperties.put("name", "Service Point");
+            spProperties.put("type", "servicePoint");
+            spProperties.put("description", "starting point");
+            servicePointFeature.put("properties", spProperties);
+
+            Map<String, Object> spGeometry = new HashMap<>();
+            spGeometry.put("type", "Point");
+            spGeometry.put("coordinates", Arrays.asList(startPoint.getLng(), startPoint.getLat()));
+
+            servicePointFeature.put("geometry", spGeometry);
+            features.add(servicePointFeature);
+        }
+
         // Add path as LineString feature
         Map<String, Object> lineFeature = new HashMap<>();
         lineFeature.put("type", "Feature");
-        lineFeature.put("properties", new HashMap<>());
-        
+
+        Map<String, Object> lineProperties = new HashMap<>();
+        lineProperties.put("name", "Drone Flight Path");
+        lineProperties.put("totalMoves", response.getTotalMoves());
+        lineProperties.put("totalCost", response.getTotalCost());
+        lineFeature.put("properties", lineProperties);
+
         Map<String, Object> geometry = new HashMap<>();
         geometry.put("type", "LineString");
-        
+
         List<List<Double>> coordinates = new ArrayList<>();
-        
+
         // Collect all coordinates from the first drone path (assuming single drone as per spec)
-        DeliveryPathResponse.DronePath dronePath = response.getDronePaths().get(0);
         for (DeliveryPathResponse.Delivery delivery : dronePath.getDeliveries()) {
             for (DeliveryPathResponse.LngLat point : delivery.getFlightPath()) {
                 coordinates.add(Arrays.asList(point.getLng(), point.getLat()));
             }
         }
-        
+
         geometry.put("coordinates", coordinates);
         lineFeature.put("geometry", geometry);
         features.add(lineFeature);
-        
-        // Add delivery points as Point features
-        for (DeliveryPathResponse.Delivery delivery : dronePath.getDeliveries()) {
-            if (!delivery.getFlightPath().isEmpty()) {
-                // Get the delivery location (typically the last or middle point)
-                DeliveryPathResponse.LngLat deliveryPoint = findDeliveryPoint(delivery.getFlightPath());
-                
+
+        // 修复：直接从输入数据中获取配送点坐标
+        // Add delivery points as Point features - USE ORIGINAL INPUT COORDINATES
+        for (int i = 0; i < dronePath.getDeliveries().size(); i++) {
+            DeliveryPathResponse.Delivery delivery = dronePath.getDeliveries().get(i);
+
+            // 找到对应的输入配送记录
+            MedDispatchRec originalDispatch = findOriginalDispatch(dispatches, delivery.getDeliveryId());
+
+            if (originalDispatch != null && originalDispatch.getDelivery() != null) {
                 Map<String, Object> pointFeature = new HashMap<>();
                 pointFeature.put("type", "Feature");
-                
+
                 Map<String, Object> pointProperties = new HashMap<>();
                 pointProperties.put("deliveryId", delivery.getDeliveryId());
+                pointProperties.put("type", "delivery");
+                pointProperties.put("name", "Delivery Point " + delivery.getDeliveryId());
+                pointProperties.put("originalLng", originalDispatch.getDelivery().getLng());
+                pointProperties.put("originalLat", originalDispatch.getDelivery().getLat());
                 pointFeature.put("properties", pointProperties);
-                
+
                 Map<String, Object> pointGeometry = new HashMap<>();
                 pointGeometry.put("type", "Point");
-                pointGeometry.put("coordinates", Arrays.asList(deliveryPoint.getLng(), deliveryPoint.getLat()));
-                
+                // 🔧 关键修复：使用原始输入坐标，而不是路径中的坐标
+                pointGeometry.put("coordinates", Arrays.asList(
+                        originalDispatch.getDelivery().getLng(),
+                        originalDispatch.getDelivery().getLat()
+                ));
+
                 pointFeature.put("geometry", pointGeometry);
                 features.add(pointFeature);
+
+                logger.debug("Added delivery point for ID {} at ({}, {})",
+                        delivery.getDeliveryId(),
+                        originalDispatch.getDelivery().getLng(),
+                        originalDispatch.getDelivery().getLat());
+            } else {
+                logger.warn("Could not find original dispatch for delivery ID {}", delivery.getDeliveryId());
             }
         }
-        
+
         geoJson.put("features", features);
-        
+
         // Convert to JSON string
         try {
             ObjectMapper mapper = new ObjectMapper();
             String geoJsonString = mapper.writeValueAsString(geoJson);
-            
-            logger.info("Successfully generated GeoJSON delivery path");
+
+            logger.info("Successfully generated GeoJSON delivery path with service point");
             return ResponseEntity.ok(geoJsonString);
         } catch (Exception e) {
             logger.error("Error generating GeoJSON", e);
             return ResponseEntity.status(500).build();
         }
+    }
+
+    // 添加辅助方法：根据deliveryId找到原始配送记录
+    private MedDispatchRec findOriginalDispatch(List<MedDispatchRec> dispatches, Integer deliveryId) {
+        if (dispatches == null || deliveryId == null) {
+            return null;
+        }
+
+        return dispatches.stream()
+                .filter(dispatch -> deliveryId.equals(dispatch.getId()))
+                .findFirst()
+                .orElse(null);
     }
     
     /**
