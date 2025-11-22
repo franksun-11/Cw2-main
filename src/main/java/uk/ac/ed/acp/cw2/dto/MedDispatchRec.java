@@ -22,11 +22,9 @@ public class MedDispatchRec {
     private Integer id;
 
     @JsonProperty("date")
-    @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate date;
 
     @JsonProperty("time")
-    @JsonFormat(pattern = "HH:mm")
     private LocalTime time;
 
     @JsonProperty("requirements")

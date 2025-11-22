@@ -195,47 +195,47 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                     // Get drones available at this service point
                     List<Integer> droneIdsAtSp = getDroneIdsAtServicePoint(sp.getId(), droneAvailability, availableDroneIds);
 
-                if (droneIdsAtSp.isEmpty()) {
-                    logger.debug("No available drones at service point {}", sp.getId());
-                    continue;
-                }
-
-                // try each available drone at this service point
-                for (Integer droneId : droneIdsAtSp) {
-                    Drone drone = allDrones.stream()
-                            .filter(d -> d.getId().equals(droneId))
-                            .findFirst()
-                            .orElse(null);
-
-                    if (drone == null) {
-                        logger.warn("Drone {} not found in allDrones list", droneId);
+                    if (droneIdsAtSp.isEmpty()) {
+                        logger.debug("No available drones at service point {}", sp.getId());
                         continue;
                     }
 
-                    logger.debug("Calculating path for drone {} at service point {}",
-                            drone.getId(), sp.getName());
+                    // try each available drone at this service point
+                    for (Integer droneId : droneIdsAtSp) {
+                        Drone drone = allDrones.stream()
+                                .filter(d -> d.getId().equals(droneId))
+                                .findFirst()
+                                .orElse(null);
 
-                    // calculate delivery path for this drone
-                    DeliveryPathResponse response = calculatePathForDrone(drone, sp, dispatches, restrictedAreas);
-
-                    // Select best solution: 1) Fewer moves wins, 2) Same moves -> lower cost wins
-                    if (response != null) {
-                        boolean isBetter = false;
-                        if (response.getTotalMoves() < bestMoves) {
-                            isBetter = true;
-                        } else if (response.getTotalMoves() == bestMoves &&
-                                   (bestResponse == null || response.getTotalCost() < bestResponse.getTotalCost())) {
-                            isBetter = true;
+                        if (drone == null) {
+                            logger.warn("Drone {} not found in allDrones list", droneId);
+                            continue;
                         }
 
-                        if (isBetter) {
-                            bestMoves = response.getTotalMoves();
-                            bestResponse = response;
-                            logger.info("New best single-drone path found: {} moves, cost {} using drone {} at service point {}",
-                                    bestMoves, String.format("%.2f", response.getTotalCost()), drone.getId(), sp.getName());
+                        logger.debug("Calculating path for drone {} at service point {}",
+                                drone.getId(), sp.getName());
+
+                        // calculate delivery path for this drone
+                        DeliveryPathResponse response = calculatePathForDrone(drone, sp, dispatches, restrictedAreas);
+
+                        // Select best solution: 1) Fewer moves wins, 2) Same moves -> lower cost wins
+                        if (response != null) {
+                            boolean isBetter = false;
+                            if (response.getTotalMoves() < bestMoves) {
+                                isBetter = true;
+                            } else if (response.getTotalMoves() == bestMoves &&
+                                    (bestResponse == null || response.getTotalCost() < bestResponse.getTotalCost())) {
+                                isBetter = true;
+                            }
+
+                            if (isBetter) {
+                                bestMoves = response.getTotalMoves();
+                                bestResponse = response;
+                                logger.info("New best single-drone path found: {} moves, cost {} using drone {} at service point {}",
+                                        bestMoves, String.format("%.2f", response.getTotalCost()), drone.getId(), sp.getName());
+                            }
                         }
                     }
-                }
                 }
             }
 
@@ -367,16 +367,6 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             return false;
         }
 
-        // Check total capacity for all dispatches combined
-        double totalCapacity = dispatches.stream()
-                .mapToDouble(d -> d.getRequirements().getCapacity())
-                .sum();
-
-        if (totalCapacity > drone.getCapability().getCapacity()) {
-            logger.debug("Drone {} cannot fulfill all dispatches: total capacity {} exceeds drone capacity {}",
-                    drone.getId(), totalCapacity, drone.getCapability().getCapacity());
-            return false;
-        }
 
         // Check if dispatches require both cooling AND heating
         boolean needsCooling = dispatches.stream()
@@ -1013,9 +1003,9 @@ public class DroneQueryServiceImpl implements DroneQueryService {
     }
 
     private DeliveryPathResponse calculatePathForDrone(Drone drone,
-            ServicePoint servicePoint,
-            List<MedDispatchRec> dispatches,
-            List<RestrictedArea> restrictedAreas) {
+                                                       ServicePoint servicePoint,
+                                                       List<MedDispatchRec> dispatches,
+                                                       List<RestrictedArea> restrictedAreas) {
         logger.info("Calculating path for drone {} from service point {}", drone.getId(), servicePoint.getName());
 
         // Group dispatches by date and sort by date
@@ -1567,8 +1557,8 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         while (steps < maxSteps) {
             // Check if we're close enough to target
             double distance = calculateEuclideanDistance(
-                current.getLng(), current.getLat(),
-                to.getLng(), to.getLat()
+                    current.getLng(), current.getLat(),
+                    to.getLng(), to.getLat()
             );
 
             if (distance < CLOSE_THRESHOLD) {
@@ -1603,7 +1593,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             if (bestNext == null) {
                 // No valid move found - path is blocked, fall back to A*
                 logger.warn("Direct greedy path blocked at ({}, {}), using A* instead",
-                    current.getLng(), current.getLat());
+                        current.getLng(), current.getLat());
                 return aStarPathfinding(from, to, restrictedAreas);
             }
 
@@ -2250,7 +2240,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
      * Check if drone is available for a specific dispatch
      */
     private boolean isDroneAvailableForDispatch(Integer droneId, MedDispatchRec dispatch,
-                                                 List<DroneServicePointAvailability> droneAvailability) {
+                                                List<DroneServicePointAvailability> droneAvailability) {
         if (dispatch.getDate() == null || dispatch.getTime() == null) {
             return true; // No time constraint
         }
@@ -2314,7 +2304,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                     if (result.getTotalMoves() < bestMoves) {
                         isBetter = true;
                     } else if (result.getTotalMoves() == bestMoves &&
-                               (bestResult == null || result.getTotalCost() < bestResult.getTotalCost())) {
+                            (bestResult == null || result.getTotalCost() < bestResult.getTotalCost())) {
                         isBetter = true;
                     }
 
@@ -2399,7 +2389,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                         if (candidate.response.getTotalMoves() < best.response.getTotalMoves()) {
                             best = candidate;
                         } else if (candidate.response.getTotalMoves().equals(best.response.getTotalMoves()) &&
-                                   candidate.response.getTotalCost() < best.response.getTotalCost()) {
+                                candidate.response.getTotalCost() < best.response.getTotalCost()) {
                             best = candidate;
                         }
                     }
@@ -2576,7 +2566,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                         if (result.getTotalMoves() < best.response.getTotalMoves()) {
                             isBetter = true;
                         } else if (result.getTotalMoves().equals(best.response.getTotalMoves()) &&
-                                   result.getTotalCost() < best.response.getTotalCost()) {
+                                result.getTotalCost() < best.response.getTotalCost()) {
                             isBetter = true;
                         }
                     }
