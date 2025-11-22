@@ -239,82 +239,87 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 }
             }
 
-            // Check if dispatches span multiple dates
-            Set<LocalDate> uniqueDates = dispatches.stream()
-                    .map(MedDispatchRec::getDate)
-                    .collect(Collectors.toSet());
-
-            boolean hasMultipleDates = uniqueDates.size() > 1;
-
-            // If single drone solution found
+            // Log single drone result
             if (bestResponse != null) {
-                logger.info("Single drone solution found - Cost: {}, Moves: {}",
-                        bestResponse.getTotalCost(), bestResponse.getTotalMoves());
-
-                // If only one date, return immediately - no need to try multi-drone
-                if (!hasMultipleDates) {
-                    logger.info("✓ Single date scenario - returning single-drone solution");
-                    return bestResponse;
-                }
-
-                // Multiple dates: Compare with using different drones per date
-                logger.info("Multiple dates detected ({}). Comparing single-drone (reused across days) vs multi-drone (different drones per date)",
-                        uniqueDates.size());
+                logger.info("✓ Strategy 1 (Single Drone): {} moves, cost {}",
+                        bestResponse.getTotalMoves(), String.format("%.2f", bestResponse.getTotalCost()));
+            } else {
+                logger.info("✗ Strategy 1 (Single Drone): No solution found");
             }
 
-            // STRATEGY 2: Try multi-drone solution
-            // Multi-drone is needed for:
-            // 1. Conflicting requirements (cooling vs heating) when no drone has both
-            // 2. MaxMoves exceeded - need multiple drones to split deliveries
-            // 3. Multiple dates - might be more efficient to use different drones per date
+            // STRATEGY 2: Try NEAREST SERVICE POINT strategy to minimize moves
+            // Assign each delivery to its nearest service point
+            // This can be better even when single-drone works!
+            // Example: D1 near SP1, D2 near SP2 -> 2 drones (short trips) < 1 drone (long trip)
 
-            if (bestResponse == null) {
-                logger.info("Single-drone failed, trying multi-drone solution");
-            }
+            logger.info("Trying Strategy 2: Nearest Service Point (each delivery → nearest SP)");
 
-            // For multi-drone, we need ALL available drones
             List<Integer> allAvailableDroneIds = allDrones.stream()
                     .map(Drone::getId)
                     .collect(Collectors.toList());
 
+            DeliveryPathResponse nearestSPResponse = calculateNearestServicePointPath(
+                    dispatches, allDrones, servicePoints, droneAvailability, allAvailableDroneIds, restrictedAreas);
+
+            if (nearestSPResponse != null) {
+                logger.info("✓ Strategy 2 (Nearest SP): {} moves, cost {}, {} drones",
+                        nearestSPResponse.getTotalMoves(),
+                        String.format("%.2f", nearestSPResponse.getTotalCost()),
+                        nearestSPResponse.getDronePaths().size());
+            } else {
+                logger.info("✗ Strategy 2 (Nearest SP): No solution found");
+            }
+
+            // STRATEGY 3: Try traditional multi-drone (partition by requirements)
+            // Handles conflicting requirements (cooling vs heating)
+
+            logger.info("Trying Strategy 3: Traditional Multi-Drone (partition by requirements)");
+
             DeliveryPathResponse multiDroneResponse = calculateMultiDronePath(
                     dispatches, allDrones, servicePoints, droneAvailability, allAvailableDroneIds, restrictedAreas);
 
-            // Compare solutions: 1) Fewer moves wins, 2) Same moves -> lower cost wins
-            if (bestResponse != null && multiDroneResponse != null) {
-                if (bestResponse.getTotalMoves() < multiDroneResponse.getTotalMoves()) {
-                    logger.info("✓ Choosing single-drone (reused across {} days): {} moves < {} moves (multi-drone)",
-                            uniqueDates.size(), bestResponse.getTotalMoves(), multiDroneResponse.getTotalMoves());
-                    return bestResponse;
-                } else if (bestResponse.getTotalMoves().equals(multiDroneResponse.getTotalMoves())) {
-                    // Same moves - compare cost
-                    if (bestResponse.getTotalCost() <= multiDroneResponse.getTotalCost()) {
-                        logger.info("✓ Choosing single-drone: {} moves (cost: ${} ≤ ${} multi-drone)",
-                                bestResponse.getTotalMoves(),
-                                String.format("%.2f", bestResponse.getTotalCost()),
-                                String.format("%.2f", multiDroneResponse.getTotalCost()));
-                        return bestResponse;
-                    } else {
-                        logger.info("✓ Choosing multi-drone: {} moves (cost: ${} < ${} single-drone)",
-                                multiDroneResponse.getTotalMoves(),
-                                String.format("%.2f", multiDroneResponse.getTotalCost()),
-                                String.format("%.2f", bestResponse.getTotalCost()));
-                        return multiDroneResponse;
-                    }
-                } else {
-                    logger.info("✓ Choosing multi-drone (different drones per date): {} moves < {} moves (single-drone)",
-                            multiDroneResponse.getTotalMoves(), bestResponse.getTotalMoves());
-                    return multiDroneResponse;
-                }
-            } else if (bestResponse != null) {
-                logger.info("✓ Using single-drone solution (multi-drone failed)");
-                return bestResponse;
-            } else if (multiDroneResponse != null) {
-                logger.info("✓ Using multi-drone solution (single-drone not possible)");
-                return multiDroneResponse;
+            if (multiDroneResponse != null) {
+                logger.info("✓ Strategy 3 (Multi-Drone Partition): {} moves, cost {}, {} drones",
+                        multiDroneResponse.getTotalMoves(),
+                        String.format("%.2f", multiDroneResponse.getTotalCost()),
+                        multiDroneResponse.getDronePaths().size());
+            } else {
+                logger.info("✗ Strategy 3 (Multi-Drone Partition): No solution found");
             }
-            logger.warn("No valid delivery path found (all strategies failed)");
-            return createEmptyResponse();
+
+            // SELECTION: Choose solution with FEWEST MOVES (primary), then lowest cost (secondary)
+            logger.info("=== Comparing all strategies ===");
+
+            List<DeliveryPathResponse> candidates = new ArrayList<>();
+            if (bestResponse != null) candidates.add(bestResponse);
+            if (nearestSPResponse != null) candidates.add(nearestSPResponse);
+            if (multiDroneResponse != null) candidates.add(multiDroneResponse);
+
+            if (candidates.isEmpty()) {
+                logger.error("❌ No valid solution found from any strategy");
+                return createEmptyResponse();
+            }
+
+            // Sort by: 1) moves (ascending), 2) cost (ascending)
+            DeliveryPathResponse finalBest = candidates.stream()
+                    .min(Comparator.comparing(DeliveryPathResponse::getTotalMoves)
+                            .thenComparing(DeliveryPathResponse::getTotalCost))
+                    .orElse(null);
+
+            if (finalBest == bestResponse) {
+                logger.info("WINNER: Strategy 1 (Single Drone) - {} moves, cost {}",
+                        finalBest.getTotalMoves(), String.format("%.2f", finalBest.getTotalCost()));
+            } else if (finalBest == nearestSPResponse) {
+                logger.info("WINNER: Strategy 2 (Nearest SP) - {} moves, cost {}, {} drones used",
+                        finalBest.getTotalMoves(), String.format("%.2f", finalBest.getTotalCost()),
+                        finalBest.getDronePaths().size());
+            } else {
+                logger.info("WINNER: Strategy 3 (Multi-Drone Partition) - {} moves, cost {}, {} drones used",
+                        finalBest.getTotalMoves(), String.format("%.2f", finalBest.getTotalCost()),
+                        finalBest.getDronePaths().size());
+            }
+
+            return finalBest;
 
         } catch (Exception e) {
             logger.error("Error calculating delivery path", e);
@@ -1972,6 +1977,270 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
         logger.debug("Reconstructed path with {} points", path.size());
         return path;
+    }
+
+    /**
+     * Calculate multi-drone path using NEAREST SERVICE POINT CLUSTERING strategy.
+     * Strategy: GROUP dispatches by nearest service point, then assign one drone per group.
+     *
+     * Example: D1, D2, D3 near AT; D4, D5 near OT
+     * - Single drone from AT: AT → D1 → D2 → D3 → D4 (far!) → D5 (far!) → AT = HIGH moves
+     * - Clustered approach:
+     *   Drone1 from AT: AT → D1 → D2 → D3 → AT (short trips)
+     *   Drone2 from OT: OT → D4 → D5 → OT (short trips)
+     *   Total = LOW moves ✓
+     *
+     * Fallback: If no drone available at nearest SP, try other SPs
+     */
+    private DeliveryPathResponse calculateNearestServicePointPath(
+            List<MedDispatchRec> dispatches,
+            List<Drone> allDrones,
+            List<ServicePoint> servicePoints,
+            List<DroneServicePointAvailability> droneAvailability,
+            List<Integer> availableDroneIds,
+            List<RestrictedArea> restrictedAreas) {
+
+        logger.info("Calculating nearest service point clustering for {} deliveries", dispatches.size());
+
+        // Group dispatches by date first
+        Map<LocalDate, List<MedDispatchRec>> byDate = dispatches.stream()
+                .collect(Collectors.groupingBy(MedDispatchRec::getDate));
+
+        List<DeliveryPathResponse.DronePath> allDronePaths = new ArrayList<>();
+        double totalCost = 0.0;
+        int totalMoves = 0;
+        Set<Integer> usedDroneIds = new HashSet<>();
+
+        // Process each date separately
+        for (Map.Entry<LocalDate, List<MedDispatchRec>> dateEntry : byDate.entrySet()) {
+            LocalDate date = dateEntry.getKey();
+            List<MedDispatchRec> dailyDispatches = dateEntry.getValue();
+
+            logger.debug("Processing {} deliveries for date {}", dailyDispatches.size(), date);
+
+            // STEP 1: Cluster dispatches by nearest service point
+            Map<ServicePoint, List<MedDispatchRec>> clustersBySP = clusterDispatchesByNearestSP(
+                    dailyDispatches, servicePoints);
+
+            logger.info("Clustered {} deliveries into {} groups by service point",
+                    dailyDispatches.size(), clustersBySP.size());
+
+            // STEP 2: For each cluster, find suitable drone and calculate path
+            for (Map.Entry<ServicePoint, List<MedDispatchRec>> cluster : clustersBySP.entrySet()) {
+                ServicePoint sp = cluster.getKey();
+                List<MedDispatchRec> clusterDispatches = cluster.getValue();
+
+                logger.info("Cluster at {}: {} deliveries", sp.getName(), clusterDispatches.size());
+
+                // Try to find drone at this service point
+                Integer droneId = findSuitableDroneForCluster(
+                        sp, clusterDispatches, allDrones, droneAvailability,
+                        availableDroneIds, usedDroneIds, restrictedAreas);
+
+                ServicePoint actualSP = sp;
+
+                // FALLBACK: If no drone at nearest SP, try other service points
+                if (droneId == null) {
+                    logger.warn("No suitable drone at nearest SP {} for cluster, trying other SPs...",
+                            sp.getName());
+
+                    for (ServicePoint alternateSP : servicePoints) {
+                        if (alternateSP.getId().equals(sp.getId())) continue;
+
+                        droneId = findSuitableDroneForCluster(
+                                alternateSP, clusterDispatches, allDrones, droneAvailability,
+                                availableDroneIds, usedDroneIds, restrictedAreas);
+
+                        if (droneId != null) {
+                            actualSP = alternateSP;
+                            logger.info("Found drone {} at alternate SP {}", droneId, alternateSP.getName());
+                            break;
+                        }
+                    }
+                }
+
+                if (droneId == null) {
+                    logger.error("No suitable drone found for cluster at {} (tried all SPs)", sp.getName());
+                    return null;
+                }
+
+                final Integer finalDroneId = droneId;
+                Drone drone = allDrones.stream()
+                        .filter(d -> d.getId().equals(finalDroneId))
+                        .findFirst()
+                        .orElse(null);
+
+                if (drone == null) {
+                    logger.warn("Drone {} not found", droneId);
+                    return null;
+                }
+
+                // Calculate path for this cluster
+                DeliveryPathResponse clusterPath = calculatePathForDrone(
+                        drone, actualSP, clusterDispatches, restrictedAreas);
+
+                if (clusterPath == null) {
+                    logger.warn("Failed to calculate path for cluster at {} with drone {}",
+                            actualSP.getName(), droneId);
+                    return null;
+                }
+
+                logger.info("Assigned cluster ({} deliveries) to drone {} at {}: {} moves, cost {}",
+                        clusterDispatches.size(), droneId, actualSP.getName(),
+                        clusterPath.getTotalMoves(), String.format("%.2f", clusterPath.getTotalCost()));
+
+                allDronePaths.addAll(clusterPath.getDronePaths());
+                totalCost += clusterPath.getTotalCost();
+                totalMoves += clusterPath.getTotalMoves();
+                usedDroneIds.add(droneId);
+            }
+        }
+
+        DeliveryPathResponse response = new DeliveryPathResponse();
+        response.setTotalCost(totalCost);
+        response.setTotalMoves(totalMoves);
+        response.setDronePaths(allDronePaths);
+
+        logger.info("Nearest SP clustering: {} drones, {} total moves, cost {}",
+                usedDroneIds.size(), totalMoves, String.format("%.2f", totalCost));
+
+        return response;
+    }
+
+    /**
+     * Cluster dispatches by their nearest service point.
+     * Returns map: ServicePoint -> List of dispatches nearest to that SP
+     */
+    private Map<ServicePoint, List<MedDispatchRec>> clusterDispatchesByNearestSP(
+            List<MedDispatchRec> dispatches,
+            List<ServicePoint> servicePoints) {
+
+        Map<ServicePoint, List<MedDispatchRec>> clusters = new HashMap<>();
+
+        for (MedDispatchRec dispatch : dispatches) {
+            // Find nearest service point for this dispatch
+            ServicePoint nearestSP = null;
+            double minDistance = Double.MAX_VALUE;
+
+            for (ServicePoint sp : servicePoints) {
+                double distance = calculateEuclideanDistance(
+                        sp.getLocation().getLng(),
+                        sp.getLocation().getLat(),
+                        dispatch.getDelivery().getLng(),
+                        dispatch.getDelivery().getLat()
+                );
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestSP = sp;
+                }
+            }
+
+            if (nearestSP != null) {
+                clusters.computeIfAbsent(nearestSP, k -> new ArrayList<>()).add(dispatch);
+                logger.debug("Dispatch {} assigned to cluster at {} (distance: {})",
+                        dispatch.getId(), nearestSP.getName(), String.format("%.4f", minDistance));
+            }
+        }
+
+        return clusters;
+    }
+
+    /**
+     * Find suitable drone at service point that can handle all dispatches in cluster
+     */
+    private Integer findSuitableDroneForCluster(
+            ServicePoint servicePoint,
+            List<MedDispatchRec> clusterDispatches,
+            List<Drone> allDrones,
+            List<DroneServicePointAvailability> droneAvailability,
+            List<Integer> availableDroneIds,
+            Set<Integer> usedDroneIds,
+            List<RestrictedArea> restrictedAreas) {
+
+        // Get drones at this service point
+        List<Integer> dronesAtSP = droneAvailability.stream()
+                .filter(dsa -> dsa.getServicePointId().equals(servicePoint.getId()))
+                .flatMap(dsa -> dsa.getDrones().stream())
+                .map(da -> Integer.parseInt(da.getId()))
+                .filter(availableDroneIds::contains)
+                .filter(droneId -> !usedDroneIds.contains(droneId))
+                .collect(Collectors.toList());
+
+        logger.debug("Service point {} has {} available drones: {}",
+                servicePoint.getName(), dronesAtSP.size(), dronesAtSP);
+
+        // Try each drone to see if it can handle all dispatches in cluster
+        for (Integer droneId : dronesAtSP) {
+            Drone drone = allDrones.stream()
+                    .filter(d -> d.getId().equals(droneId))
+                    .findFirst()
+                    .orElse(null);
+
+            if (drone == null) continue;
+
+            // Check if drone can handle all dispatches in cluster
+            boolean canHandleAll = clusterDispatches.stream()
+                    .allMatch(dispatch -> canDroneFulfillDispatch(drone, dispatch, droneAvailability));
+
+            if (canHandleAll) {
+                // Additional check: try to calculate path to ensure it's feasible (moves within limit)
+                DeliveryPathResponse testPath = calculatePathForDrone(
+                        drone, servicePoint, clusterDispatches, restrictedAreas);
+
+                if (testPath != null) {
+                    logger.debug("Drone {} at {} can handle cluster of {} dispatches",
+                            droneId, servicePoint.getName(), clusterDispatches.size());
+                    return droneId;
+                }
+            }
+        }
+
+        logger.debug("No suitable drone found at {} for cluster of {} dispatches",
+                servicePoint.getName(), clusterDispatches.size());
+        return null;
+    }
+
+
+    /**
+     * Check if drone can fulfill a single dispatch (simplified check)
+     */
+    private boolean canDroneFulfillDispatch(
+            Drone drone,
+            MedDispatchRec dispatch,
+            List<DroneServicePointAvailability> droneAvailability) {
+
+        if (drone.getCapability() == null) {
+            return false;
+        }
+
+        Drone.Capability cap = drone.getCapability();
+        MedDispatchRec.Requirements req = dispatch.getRequirements();
+
+        // Check capacity
+        if (req.getCapacity() != null &&
+            (cap.getCapacity() == null || cap.getCapacity() < req.getCapacity())) {
+            return false;
+        }
+
+        // Check cooling
+        if (Boolean.TRUE.equals(req.getCooling()) && !Boolean.TRUE.equals(cap.getCooling())) {
+            return false;
+        }
+
+        // Check heating
+        if (Boolean.TRUE.equals(req.getHeating()) && !Boolean.TRUE.equals(cap.getHeating())) {
+            return false;
+        }
+
+        // Check availability
+        if (dispatch.getDate() != null && dispatch.getTime() != null) {
+            if (!isAvailableAtTime(drone.getId(), dispatch.getDate(), dispatch.getTime(), droneAvailability)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

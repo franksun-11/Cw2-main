@@ -16,6 +16,8 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Set;
+import java.util.HashSet;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
@@ -157,92 +159,127 @@ public class DroneController {
 
         List<Map<String, Object>> features = new ArrayList<>();
 
-        // 首先添加服务点标记（起点）
-        DeliveryPathResponse.DronePath dronePath = response.getDronePaths().get(0);
-        if (!dronePath.getDeliveries().isEmpty() && !dronePath.getDeliveries().get(0).getFlightPath().isEmpty()) {
-            // 获取路径的起点（服务点位置）
-            DeliveryPathResponse.LngLat startPoint = dronePath.getDeliveries().get(0).getFlightPath().get(0);
+        // Track service points to avoid duplicates
+        Set<String> addedServicePoints = new HashSet<>();
 
-            Map<String, Object> servicePointFeature = new HashMap<>();
-            servicePointFeature.put("type", "Feature");
+        // Process ALL drone paths
+        for (int droneIndex = 0; droneIndex < response.getDronePaths().size(); droneIndex++) {
+            DeliveryPathResponse.DronePath dronePath = response.getDronePaths().get(droneIndex);
+            Integer droneId = dronePath.getDroneId();
 
-            Map<String, Object> spProperties = new HashMap<>();
-            spProperties.put("name", "Service Point");
-            spProperties.put("type", "servicePoint");
-            spProperties.put("description", "starting point");
-            servicePointFeature.put("properties", spProperties);
+            logger.debug("Processing drone path {} for drone ID {}", droneIndex + 1, droneId);
 
-            Map<String, Object> spGeometry = new HashMap<>();
-            spGeometry.put("type", "Point");
-            spGeometry.put("coordinates", Arrays.asList(startPoint.getLng(), startPoint.getLat()));
+            // Add service point marker (starting point) - only once per unique location
+            if (!dronePath.getDeliveries().isEmpty() && !dronePath.getDeliveries().get(0).getFlightPath().isEmpty()) {
+                DeliveryPathResponse.LngLat startPoint = dronePath.getDeliveries().get(0).getFlightPath().get(0);
+                String spKey = startPoint.getLng() + "," + startPoint.getLat();
 
-            servicePointFeature.put("geometry", spGeometry);
-            features.add(servicePointFeature);
-        }
+                if (!addedServicePoints.contains(spKey)) {
+                    Map<String, Object> servicePointFeature = new HashMap<>();
+                    servicePointFeature.put("type", "Feature");
 
-        // Add path as LineString feature
-        Map<String, Object> lineFeature = new HashMap<>();
-        lineFeature.put("type", "Feature");
+                    Map<String, Object> spProperties = new HashMap<>();
+                    spProperties.put("name", "Service Point");
+                    spProperties.put("type", "servicePoint");
+                    spProperties.put("description", "Drone " + droneId + " starting point");
+                    spProperties.put("droneId", droneId);
+                    servicePointFeature.put("properties", spProperties);
 
-        Map<String, Object> lineProperties = new HashMap<>();
-        lineProperties.put("name", "Drone Flight Path");
-        lineProperties.put("totalMoves", response.getTotalMoves());
-        lineProperties.put("totalCost", response.getTotalCost());
-        lineFeature.put("properties", lineProperties);
+                    Map<String, Object> spGeometry = new HashMap<>();
+                    spGeometry.put("type", "Point");
+                    spGeometry.put("coordinates", Arrays.asList(startPoint.getLng(), startPoint.getLat()));
 
-        Map<String, Object> geometry = new HashMap<>();
-        geometry.put("type", "LineString");
+                    servicePointFeature.put("geometry", spGeometry);
+                    features.add(servicePointFeature);
+                    addedServicePoints.add(spKey);
 
-        List<List<Double>> coordinates = new ArrayList<>();
-
-        // Collect all coordinates from the first drone path (assuming single drone as per spec)
-        for (DeliveryPathResponse.Delivery delivery : dronePath.getDeliveries()) {
-            for (DeliveryPathResponse.LngLat point : delivery.getFlightPath()) {
-                coordinates.add(Arrays.asList(point.getLng(), point.getLat()));
+                    logger.debug("Added service point at ({}, {}) for drone {}",
+                            startPoint.getLng(), startPoint.getLat(), droneId);
+                }
             }
-        }
 
-        geometry.put("coordinates", coordinates);
-        lineFeature.put("geometry", geometry);
-        features.add(lineFeature);
+            // Add flight path as LineString feature for this drone
+            Map<String, Object> lineFeature = new HashMap<>();
+            lineFeature.put("type", "Feature");
 
-        // 修复：直接从输入数据中获取配送点坐标
-        // Add delivery points as Point features - USE ORIGINAL INPUT COORDINATES
-        for (int i = 0; i < dronePath.getDeliveries().size(); i++) {
-            DeliveryPathResponse.Delivery delivery = dronePath.getDeliveries().get(i);
+            Map<String, Object> lineProperties = new HashMap<>();
+            lineProperties.put("name", "Drone " + droneId + " Flight Path");
+            lineProperties.put("droneId", droneId);
+            lineProperties.put("type", "flightPath");
+            lineProperties.put("deliveryCount", dronePath.getDeliveries().size());
 
-            // 找到对应的输入配送记录
-            MedDispatchRec originalDispatch = findOriginalDispatch(dispatches, delivery.getDeliveryId());
+            // Calculate moves and cost for this drone
+            int droneMovesCount = 0;
+            for (DeliveryPathResponse.Delivery delivery : dronePath.getDeliveries()) {
+                droneMovesCount += delivery.getFlightPath().size() - 1;
+            }
+            lineProperties.put("moves", droneMovesCount);
 
-            if (originalDispatch != null && originalDispatch.getDelivery() != null) {
-                Map<String, Object> pointFeature = new HashMap<>();
-                pointFeature.put("type", "Feature");
+            lineFeature.put("properties", lineProperties);
 
-                Map<String, Object> pointProperties = new HashMap<>();
-                pointProperties.put("deliveryId", delivery.getDeliveryId());
-                pointProperties.put("type", "delivery");
-                pointProperties.put("name", "Delivery Point " + delivery.getDeliveryId());
-                pointProperties.put("originalLng", originalDispatch.getDelivery().getLng());
-                pointProperties.put("originalLat", originalDispatch.getDelivery().getLat());
-                pointFeature.put("properties", pointProperties);
+            Map<String, Object> geometry = new HashMap<>();
+            geometry.put("type", "LineString");
 
-                Map<String, Object> pointGeometry = new HashMap<>();
-                pointGeometry.put("type", "Point");
-                // 🔧 关键修复：使用原始输入坐标，而不是路径中的坐标
-                pointGeometry.put("coordinates", Arrays.asList(
-                        originalDispatch.getDelivery().getLng(),
-                        originalDispatch.getDelivery().getLat()
-                ));
+            List<List<Double>> coordinates = new ArrayList<>();
 
-                pointFeature.put("geometry", pointGeometry);
-                features.add(pointFeature);
+            // Collect all coordinates from this drone's path
+            for (DeliveryPathResponse.Delivery delivery : dronePath.getDeliveries()) {
+                for (DeliveryPathResponse.LngLat point : delivery.getFlightPath()) {
+                    coordinates.add(Arrays.asList(point.getLng(), point.getLat()));
+                }
+            }
 
-                logger.debug("Added delivery point for ID {} at ({}, {})",
-                        delivery.getDeliveryId(),
-                        originalDispatch.getDelivery().getLng(),
-                        originalDispatch.getDelivery().getLat());
-            } else {
-                logger.warn("Could not find original dispatch for delivery ID {}", delivery.getDeliveryId());
+            geometry.put("coordinates", coordinates);
+            lineFeature.put("geometry", geometry);
+            features.add(lineFeature);
+
+            logger.debug("Added flight path for drone {} with {} coordinates", droneId, coordinates.size());
+
+            // Add delivery points for this drone - USE ORIGINAL INPUT COORDINATES
+            for (int i = 0; i < dronePath.getDeliveries().size(); i++) {
+                DeliveryPathResponse.Delivery delivery = dronePath.getDeliveries().get(i);
+
+                MedDispatchRec originalDispatch = findOriginalDispatch(dispatches, delivery.getDeliveryId());
+
+                if (originalDispatch != null && originalDispatch.getDelivery() != null) {
+                    Map<String, Object> pointFeature = new HashMap<>();
+                    pointFeature.put("type", "Feature");
+
+                    Map<String, Object> pointProperties = new HashMap<>();
+                    pointProperties.put("deliveryId", delivery.getDeliveryId());
+                    pointProperties.put("type", "delivery");
+                    pointProperties.put("name", "Delivery " + delivery.getDeliveryId());
+                    pointProperties.put("droneId", droneId);
+                    pointProperties.put("sequenceNumber", i + 1);
+                    pointProperties.put("totalDeliveries", dronePath.getDeliveries().size());
+                    pointProperties.put("date", originalDispatch.getDate() != null ? originalDispatch.getDate().toString() : "N/A");
+                    pointProperties.put("time", originalDispatch.getTime() != null ? originalDispatch.getTime().toString() : "N/A");
+
+                    if (originalDispatch.getRequirements() != null) {
+                        pointProperties.put("capacity", originalDispatch.getRequirements().getCapacity());
+                        pointProperties.put("cooling", originalDispatch.getRequirements().getCooling());
+                        pointProperties.put("heating", originalDispatch.getRequirements().getHeating());
+                    }
+
+                    pointFeature.put("properties", pointProperties);
+
+                    Map<String, Object> pointGeometry = new HashMap<>();
+                    pointGeometry.put("type", "Point");
+                    pointGeometry.put("coordinates", Arrays.asList(
+                            originalDispatch.getDelivery().getLng(),
+                            originalDispatch.getDelivery().getLat()
+                    ));
+
+                    pointFeature.put("geometry", pointGeometry);
+                    features.add(pointFeature);
+
+                    logger.debug("Added delivery point {} for drone {} at ({}, {})",
+                            delivery.getDeliveryId(), droneId,
+                            originalDispatch.getDelivery().getLng(),
+                            originalDispatch.getDelivery().getLat());
+                } else {
+                    logger.warn("Could not find original dispatch for delivery ID {}", delivery.getDeliveryId());
+                }
             }
         }
 
