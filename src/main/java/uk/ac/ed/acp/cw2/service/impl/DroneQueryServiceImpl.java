@@ -638,24 +638,23 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 .collect(Collectors.toList());
 
         int numDispatches = sameDateDispatches.size();
-        double fixedCostPerDispatch = (costInitial + costFinal) / numDispatches;
 
         List<MedDispatchRec> orderedDispatches = optimizeSimpleRouteForEstimation(closestSP, sameDateDispatches);
 
-        // Calculate segment distances for optimized route
-        double[] segmentDistances = new double[numDispatches + 1];
+        // Calculate total distance for the entire flight: SP → D1 → D2 → ... → Dn → SP
+        double totalFlightDistance = 0.0;
 
         // Segment 0: SP → first delivery
-        segmentDistances[0] = calculateEuclideanDistance(
+        totalFlightDistance += calculateEuclideanDistance(
                 closestSP.getLocation().getLng(),
                 closestSP.getLocation().getLat(),
                 orderedDispatches.get(0).getDelivery().getLng(),
                 orderedDispatches.get(0).getDelivery().getLat()
         );
 
-        // Segments 1 to n-1: delivery i → delivery i+1
+        // Segments: delivery i → delivery i+1
         for (int i = 0; i < numDispatches - 1; i++) {
-            segmentDistances[i + 1] = calculateEuclideanDistance(
+            totalFlightDistance += calculateEuclideanDistance(
                     orderedDispatches.get(i).getDelivery().getLng(),
                     orderedDispatches.get(i).getDelivery().getLat(),
                     orderedDispatches.get(i + 1).getDelivery().getLng(),
@@ -664,52 +663,26 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         }
 
         // Last segment: last delivery → SP
-        segmentDistances[numDispatches] = calculateEuclideanDistance(
+        totalFlightDistance += calculateEuclideanDistance(
                 orderedDispatches.get(numDispatches - 1).getDelivery().getLng(),
                 orderedDispatches.get(numDispatches - 1).getDelivery().getLat(),
                 closestSP.getLocation().getLng(),
                 closestSP.getLocation().getLat()
         );
 
-        // Find which position this dispatch is in the optimized order
-        int dispatchIndex = -1;
-        for (int i = 0; i < orderedDispatches.size(); i++) {
-            if (orderedDispatches.get(i).getId().equals(dispatch.getId())) {
-                dispatchIndex = i;
-                break;
-            }
-        }
+        // Calculate total moves and total flight cost
+        double totalFlightMoves = Math.ceil(totalFlightDistance / MOVE_DISTANCE);
+        double totalFlightCost = costInitial + (totalFlightMoves * costPerMove) + costFinal;
 
-        if (dispatchIndex == -1) {
-            logger.warn("Dispatch {} not found in ordered list", dispatch.getId());
-            return Double.MAX_VALUE;
-        }
+        // Cost per delivery = total flight cost / number of deliveries (pro-rata distribution)
+        double costPerDispatch = totalFlightCost / numDispatches;
 
-        // Calculate moves for this dispatch's segments
-        double dispatchDistance = 0.0;
+        logger.debug("Drone {} - Dispatch {} (same date, {} deliveries): totalFlightMoves={}, totalFlightCost={}, costPerDispatch={}",
+                drone.getId(), dispatch.getId(), numDispatches, (int)totalFlightMoves,
+                String.format("%.2f", totalFlightCost),
+                String.format("%.2f", costPerDispatch));
 
-        if (dispatchIndex == 0) {
-            // First delivery: SP → L1 → L2
-            dispatchDistance = segmentDistances[0] + segmentDistances[1];
-        } else if (dispatchIndex == numDispatches - 1) {
-            // Last delivery: L(n-1) → Ln → SP
-            dispatchDistance = segmentDistances[dispatchIndex] + segmentDistances[dispatchIndex + 1];
-        } else {
-            // Middle delivery: L(i-1) → Li → L(i+1)
-            dispatchDistance = segmentDistances[dispatchIndex] + segmentDistances[dispatchIndex + 1];
-        }
-
-        double estimatedMoves = Math.ceil(dispatchDistance / MOVE_DISTANCE);
-        double moveCost = estimatedMoves * costPerMove;
-        double totalCost = fixedCostPerDispatch + moveCost;
-
-        logger.debug("Drone {} - Dispatch {} (same date, pos {}/{}): moves={}, moveCost={}, fixedCost={}, total={}",
-                drone.getId(), dispatch.getId(), dispatchIndex + 1, numDispatches, (int)estimatedMoves,
-                String.format("%.2f", moveCost),
-                String.format("%.2f", fixedCostPerDispatch),
-                String.format("%.2f", totalCost));
-
-        return totalCost;
+        return costPerDispatch;
     }
 
     /**
@@ -1015,8 +988,6 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         List<DeliveryPathResponse.Delivery> allDeliveries = new ArrayList<>();
         int totalMoves = 0;
 
-        // Track moves per dispatch for cost calculation
-        Map<Integer, Integer> movesPerDispatch = new HashMap<>();
 
         // Track moves per date for cost calculation (each date = separate flight)
         Map<LocalDate, Integer> movesPerDate = new HashMap<>();
@@ -1096,8 +1067,6 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 totalMoves += movesForThisDelivery;
                 movesForThisDate += movesForThisDelivery;
 
-                // Track moves for this dispatch for cost calculation
-                movesPerDispatch.put(dispatch.getId(), movesForThisDelivery);
 
                 // create Delivery object
                 DeliveryPathResponse.Delivery delivery = new DeliveryPathResponse.Delivery();
@@ -1144,31 +1113,33 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         logger.debug("Total cost across {} flights: {}", numFlights, totalCost);
 
         // Validate maxCost for each dispatch
-        // IMPORTANT: For multi-date deliveries, fixed costs are charged PER FLIGHT (per date)
-        // But for maxCost validation, we need to allocate costs fairly across dispatches
-        // Use total fixed costs / num dispatches for validation
-        int numDispatches = dispatches.size();
-        double totalFixedCosts = costInitial * numFlights + costFinal * numFlights;
-        double fixedCostPerDispatch = totalFixedCosts / numDispatches;
-
+        // IMPORTANT: Cost per dispatch = (total flight cost) / (number of deliveries in that flight)
+        // For same-date deliveries: all deliveries in one flight share the total cost equally
+        // For different dates: each date is a separate flight
         for (MedDispatchRec dispatch : dispatches) {
             if (dispatch.getRequirements().getMaxCost() != null) {
-                // Get actual moves for this dispatch
-                Integer dispatchMoves = movesPerDispatch.get(dispatch.getId());
-                if (dispatchMoves == null) {
-                    logger.warn("No move tracking for dispatch {}", dispatch.getId());
-                    continue;
-                }
+                LocalDate dispatchDate = dispatch.getDate();
 
-                // Cost for this dispatch = (fixed costs / num dispatches) + (moves * cost per move)
-                double dispatchCost = fixedCostPerDispatch + (dispatchMoves * costPerMove);
+                // Get all dispatches on the same date (same flight)
+                List<MedDispatchRec> sameDateDispatches = dispatches.stream()
+                        .filter(d -> d.getDate().equals(dispatchDate))
+                        .collect(Collectors.toList());
 
-                if (dispatchCost > dispatch.getRequirements().getMaxCost()) {
-                    logger.debug("Drone {} dispatch {} cost {} (fixed: {}, moves: {}×{}) exceeds maxCost {}",
+                int numDispatchesInFlight = sameDateDispatches.size();
+                int totalMovesInFlight = movesPerDate.get(dispatchDate);
+
+                // Calculate total cost for this flight
+                double flightCost = costInitial + (totalMovesInFlight * costPerMove) + costFinal;
+
+                // Pro-rata distribution: each delivery gets equal share of flight cost
+                double costPerDispatch = flightCost / numDispatchesInFlight;
+
+                if (costPerDispatch > dispatch.getRequirements().getMaxCost()) {
+                    logger.debug("Drone {} dispatch {} cost {} (flight: {}, moves: {}, dispatches: {}) exceeds maxCost {}",
                             drone.getId(), dispatch.getId(),
-                            String.format("%.2f", dispatchCost),
-                            String.format("%.2f", fixedCostPerDispatch),
-                            dispatchMoves, String.format("%.4f", costPerMove),
+                            String.format("%.2f", costPerDispatch),
+                            String.format("%.2f", flightCost),
+                            totalMovesInFlight, numDispatchesInFlight,
                             dispatch.getRequirements().getMaxCost());
                     return null;
                 }
