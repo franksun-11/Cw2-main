@@ -124,8 +124,13 @@ public class DroneController {
         DeliveryPathResponse response = droneQueryService.calcDeliveryPath(dispatches);
 
         if (response == null) {
-            logger.warn("Failed to calculate delivery path");
-            return ResponseEntity.badRequest().build();
+            logger.warn("No valid delivery path found - returning empty result");
+            // Return empty response with 200 OK (all requests are valid as such)
+            DeliveryPathResponse emptyResponse = new DeliveryPathResponse();
+            emptyResponse.setTotalCost(0.0);
+            emptyResponse.setTotalMoves(0);
+            emptyResponse.setDronePaths(new ArrayList<>());
+            return ResponseEntity.ok(emptyResponse);
         }
 
         logger.info("Successfully calculated delivery path - Cost: {}, Moves: {}, Drones: {}",
@@ -149,8 +154,20 @@ public class DroneController {
         DeliveryPathResponse response = droneQueryService.calcDeliveryPath(dispatches);
 
         if (response == null || response.getDronePaths() == null || response.getDronePaths().isEmpty()) {
-            logger.warn("Failed to calculate delivery path for GeoJSON");
-            return ResponseEntity.badRequest().build();
+            logger.warn("No valid delivery path found for GeoJSON - returning empty FeatureCollection");
+            // Return empty GeoJSON FeatureCollection with 200 OK
+            try {
+                Map<String, Object> emptyGeoJson = new HashMap<>();
+                emptyGeoJson.put("type", "FeatureCollection");
+                emptyGeoJson.put("features", new ArrayList<>());
+
+                ObjectMapper mapper = new ObjectMapper();
+                String geoJsonString = mapper.writeValueAsString(emptyGeoJson);
+                return ResponseEntity.ok(geoJsonString);
+            } catch (Exception e) {
+                logger.error("Error generating empty GeoJSON", e);
+                return ResponseEntity.status(500).build();
+            }
         }
 
         // Convert to GeoJSON format

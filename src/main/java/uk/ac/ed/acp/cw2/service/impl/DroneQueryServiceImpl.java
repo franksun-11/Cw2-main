@@ -393,8 +393,101 @@ public class DroneQueryServiceImpl implements DroneQueryService {
             logger.debug("Drone {} can fulfill deliveries requiring both cooling and heating", drone.getId());
         }
 
+        // Check maxMoves estimation (rough approximation for queryAvailableDrones)
+        // As per instructor: "rather on the sample side with margins so large that any normal rounding / simplifying assumptions won't matter"
+        Integer maxMoves = drone.getCapability().getMaxMoves();
+        if (maxMoves != null) {
+            double estimatedMoves = estimateTotalMovesForDispatches(drone, dispatches, droneAvailability);
+
+            if (estimatedMoves > maxMoves) {
+                logger.debug("Drone {} estimated moves {} exceeds maxMoves limit {}",
+                        drone.getId(), String.format("%.0f", estimatedMoves), maxMoves);
+                return false;
+            }
+
+            logger.debug("Drone {} estimated moves {} within maxMoves limit {}",
+                    drone.getId(), String.format("%.0f", estimatedMoves), maxMoves);
+        }
+
         return dispatches.stream()
                 .allMatch(dispatch -> fulfillDispatch(drone, dispatch, dispatches, droneAvailability, restrictedAreas));
+    }
+
+    /**
+     * Estimate total moves needed for all dispatches (rough approximation for queryAvailableDrones).
+     * As per instructor: queries with moves/cost are "on the sample side with margins so large
+     * that any normal rounding / simplifying assumptions won't matter"
+     *
+     * Strategy: Simple straight-line distance estimation with generous margins
+     * - Find nearest service point
+     * - Calculate straight-line distances: SP → D1 → D2 → ... → Dn → SP
+     * - Add 50% margin for obstacle avoidance and actual path routing
+     */
+    private double estimateTotalMovesForDispatches(
+            Drone drone,
+            List<MedDispatchRec> dispatches,
+            List<DroneServicePointAvailability> droneAvailability) {
+
+        final double MOVE_DISTANCE = 0.00015;
+        final double MARGIN_MULTIPLIER = 1.5; // 50% margin for obstacles and routing
+
+        // Find nearest service point that has this drone
+        ServicePoint nearestSP = findClosestServicePointForDrone(
+                drone.getId(),
+                dispatches.get(0).getDelivery(),
+                droneAvailability);
+
+        if (nearestSP == null) {
+            // No service point found - return very high estimate to exclude this drone
+            return Double.MAX_VALUE;
+        }
+
+        // Group by date (each date is separate round trip)
+        Map<LocalDate, List<MedDispatchRec>> byDate = dispatches.stream()
+                .collect(Collectors.groupingBy(MedDispatchRec::getDate));
+
+        double totalEstimatedMoves = 0;
+
+        for (List<MedDispatchRec> dailyDispatches : byDate.values()) {
+            // Estimate distance for this day's deliveries
+            double dailyDistance = 0;
+
+            // SP → first delivery
+            if (!dailyDispatches.isEmpty()) {
+                dailyDistance += calculateEuclideanDistance(
+                        nearestSP.getLocation().getLng(),
+                        nearestSP.getLocation().getLat(),
+                        dailyDispatches.get(0).getDelivery().getLng(),
+                        dailyDispatches.get(0).getDelivery().getLat()
+                );
+            }
+
+            // Delivery to delivery
+            for (int i = 0; i < dailyDispatches.size() - 1; i++) {
+                dailyDistance += calculateEuclideanDistance(
+                        dailyDispatches.get(i).getDelivery().getLng(),
+                        dailyDispatches.get(i).getDelivery().getLat(),
+                        dailyDispatches.get(i + 1).getDelivery().getLng(),
+                        dailyDispatches.get(i + 1).getDelivery().getLat()
+                );
+            }
+
+            // Last delivery → SP
+            if (!dailyDispatches.isEmpty()) {
+                dailyDistance += calculateEuclideanDistance(
+                        dailyDispatches.get(dailyDispatches.size() - 1).getDelivery().getLng(),
+                        dailyDispatches.get(dailyDispatches.size() - 1).getDelivery().getLat(),
+                        nearestSP.getLocation().getLng(),
+                        nearestSP.getLocation().getLat()
+                );
+            }
+
+            // Convert distance to moves and add margin
+            double dailyMoves = Math.ceil(dailyDistance / MOVE_DISTANCE);
+            totalEstimatedMoves += dailyMoves;
+        }
+
+        return totalEstimatedMoves;
     }
 
     /**
@@ -953,13 +1046,10 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
     /**
      * Create an empty response when no valid path is found
+     * Returns null to indicate no solution exists
      */
     private DeliveryPathResponse createEmptyResponse() {
-        DeliveryPathResponse response = new DeliveryPathResponse();
-        response.setTotalCost(0.0);
-        response.setTotalMoves(0);
-        response.setDronePaths(List.of());
-        return response;
+        return null;
     }
 
     /**
