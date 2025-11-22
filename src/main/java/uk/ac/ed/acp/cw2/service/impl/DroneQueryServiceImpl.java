@@ -1130,9 +1130,13 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                     return null;
                 }
 
+                // Get the ACTUAL hover position (last point we reached, which is < 0.00015 from target)
+                DeliveryPathResponse.LngLat actualHoverPosition = path.get(path.size() - 1);
+
                 // Add hover point (duplicate coordinate indicates delivery)
+                // We hover at the ACTUAL position, not the exact target location
                 path.add(new DeliveryPathResponse.LngLat(
-                        targetLocation.getLng(), targetLocation.getLat()));
+                        actualHoverPosition.getLng(), actualHoverPosition.getLat()));
 
                 // If this is the last delivery of the day, add return path to service point
                 if (i == optimiseOrder.size() - 1) {
@@ -1142,8 +1146,9 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                                     servicePoint.getLocation().getLat()
                             );
 
+                    // Start return path from the ACTUAL hover position
                     List<DeliveryPathResponse.LngLat> returnPath = generateFlightPath(
-                            targetLocation, servicePointLocation, restrictedAreas);
+                            actualHoverPosition, servicePointLocation, restrictedAreas);
 
                     if (returnPath == null) {
                         logger.warn("Cannot generate return path to service point");
@@ -1162,17 +1167,19 @@ public class DroneQueryServiceImpl implements DroneQueryService {
                 totalMoves += movesForThisDelivery;
                 movesForThisDate += movesForThisDelivery;
 
-
                 // create Delivery object
                 DeliveryPathResponse.Delivery delivery = new DeliveryPathResponse.Delivery();
                 delivery.setDeliveryId(dispatch.getId());
                 delivery.setFlightPath(path);
                 allDeliveries.add(delivery);
 
-                currentLocation = targetLocation;
+                // IMPORTANT: Next delivery starts from the ACTUAL hover position, not the target location
+                currentLocation = actualHoverPosition;
 
-                logger.debug("Generated path for delivery {} with {} moves",
-                        dispatch.getId(), movesForThisDelivery);
+                logger.debug("Generated path for delivery {} with {} moves, hover at ({}, {})",
+                        dispatch.getId(), movesForThisDelivery,
+                        String.format("%.6f", actualHoverPosition.getLng()),
+                        String.format("%.6f", actualHoverPosition.getLat()));
             }
 
             // Store total moves for this date's flight
@@ -1621,17 +1628,17 @@ public class DroneQueryServiceImpl implements DroneQueryService {
         int steps = 0;
 
         while (steps < maxSteps) {
-            // Check if we're close enough to target
+            // Check if we're close enough to target (within 0.00015 degrees)
             double distance = calculateEuclideanDistance(
                     current.getLng(), current.getLat(),
                     to.getLng(), to.getLat()
             );
 
             if (distance < CLOSE_THRESHOLD) {
-                // Close enough - add final target position if not already there
-                if (!current.getLng().equals(to.getLng()) || !current.getLat().equals(to.getLat())) {
-                    path.add(new DeliveryPathResponse.LngLat(to.getLng(), to.getLat()));
-                }
+                // Close enough - we're done!
+                // We hover at the ACTUAL position (current), not the delivery position (to)
+                // This allows us to be < 0.00015 away, which is acceptable
+                logger.debug("Reached close enough to target: distance = {}", String.format("%.6f", distance));
                 break;
             }
 
