@@ -10,12 +10,14 @@ COPY pom.xml .
 COPY src ./src
 # Build the application using Maven
 RUN mvn clean package -DskipTests
-# Use an official OpenJDK image as the base image
-FROM openjdk:21
+
+# Use Eclipse Temurin (official OpenJDK distribution)
+FROM eclipse-temurin:21-jre
 # Set the working directory in the container
 WORKDIR /app
 # Copy the built JAR file from the previous stage to the container
-COPY --from=build /app/target/IlpTutorial1*.jar app.jar
+COPY --from=build /app/target/*.jar app.jar
+
 EXPOSE 8080
 
 # Showing how ENV variables can be set
