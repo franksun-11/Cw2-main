@@ -1,14 +1,25 @@
-# ILP CW1 - Geographic REST API Service
+# ILP CW2 - Drone-Based Medication Delivery Service
 
-A Spring Boot REST API service that provides geographic calculations and geometric predicates for location-based operations.
+A comprehensive Spring Boot REST API service for managing autonomous drone-based medication delivery operations, including route optimization, availability checking, and GeoJSON path visualization.
 
-##  Overview
+## 🚁 Overview
 
-This project implements a RESTful web service for performing geographic computations including:
+This project implements a complete microservice for a drone delivery system that:
+
+### **CW1 Foundation - Geographic Services:**
 - Euclidean distance calculations between coordinates
 - Proximity detection between positions
 - Next position calculation based on angle and distance
 - Point-in-polygon detection using ray casting algorithm
+
+### **CW2 Extensions - Drone Delivery Management:**
+- **Static Drone Queries**: Filter drones by capabilities (cooling, heating, capacity, cost)
+- **Dynamic Drone Queries**: Multi-attribute queries with comparison operators (=, !=, <, >)
+- **Availability Checking**: Date/time-based drone availability validation at service points
+- **Path Optimization**: Calculate optimal delivery routes with multiple strategies
+- **GeoJSON Export**: Convert flight paths to GeoJSON format for visualization
+- **No-Fly Zone Avoidance**: Respect restricted areas during path calculation
+- **Multi-Drone Coordination**: Assign multiple drones to minimize total delivery moves
 
 **Tech Stack:**
 - Java 21
@@ -16,7 +27,9 @@ This project implements a RESTful web service for performing geographic computat
 - Maven 3.9.9
 - Lombok
 - Jakarta Validation
-- Docker
+- Docker & Docker Compose
+- RestTemplate for external API integration
+- Jackson for JSON processing
 
 ---
 
@@ -27,54 +40,76 @@ This project implements a RESTful web service for performing geographic computat
 The project follows a clean **layered architecture** pattern with clear separation of concerns:
 
 ```
-┌─────────────────────────────────────┐
-│      Controller Layer               │  ← HTTP Request/Response Handling
-├─────────────────────────────────────┤
-│      Service Layer (Interface)      │  ← Business Logic & Algorithms
-├─────────────────────────────────────┤
-│      Repository Layer               │  ← Data Access (Future: Persistence)
-├─────────────────────────────────────┤
-│      DTO Layer                       │  ← Data Transfer & Domain Models
-├─────────────────────────────────────┤
-│      Entity Layer                    │  ← Database Entities (Reserved)
-└─────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│      Controller Layer                        │  ← HTTP Request/Response Handling
+│  - GeoController (CW1)                       │
+│  - DroneController (CW2)                     │
+├──────────────────────────────────────────────┤
+│      Service Layer (Interface)               │  ← Business Logic & Algorithms
+│  - GeoService: Geographic calculations       │
+│  - DroneQueryService: Drone operations       │
+├──────────────────────────────────────────────┤
+│      Configuration Layer                     │  ← External Service Integration
+│  - IlpEndpointConfig: REST client setup      │
+│  - Environment variable management           │
+├──────────────────────────────────────────────┤
+│      DTO Layer                                │  ← Data Transfer & Domain Models
+│  - Request/Response DTOs                     │
+│  - Domain Models (LngLat, Region, Drone)     │
+├──────────────────────────────────────────────┤
+│      Data Layer                               │  ← Runtime Configuration
+│  - RuntimeEnvironment                        │
+└──────────────────────────────────────────────┘
+           ↕ RestTemplate
+┌──────────────────────────────────────────────┐
+│   External ILP REST Service (Azure)          │
+│  - Drones data                               │
+│  - Service points                            │
+│  - Restricted areas                          │
+│  - Drone availability schedules              │
+└──────────────────────────────────────────────┘
 ```
 
-### Package Structure Philosophy
+### Key Architectural Features
 
-**Why DTO Contains Domain Models?**
-
-In this stateless REST API, we've adopted a **pragmatic approach**:
-- `LngLat` and `Region` serve as both **Value Objects** (domain concepts) and **DTOs** (data transfer)
-- They contain validation logic and are used across multiple layers
-- No ORM mapping needed = no separate entity layer required
-- Reduces unnecessary abstraction while maintaining clean separation
-
-**When to Use `entity` Package:**
-- Reserved for future database persistence with JPA/Hibernate
-- Will contain `@Entity` annotated classes when persistence is added
-- Currently empty as the API is stateless
+✅ **Microservice Architecture**: Stateless REST API ready for containerization  
+✅ **External Data Integration**: All operational data fetched from ILP REST service  
+✅ **Environment-Driven Configuration**: ILP_ENDPOINT configurable via environment variable  
+✅ **Multi-Strategy Optimization**: Three pathfinding strategies for optimal delivery  
+✅ **Clean Separation**: Controllers handle HTTP, Services implement algorithms  
+✅ **Dockerized Deployment**: Multi-stage build for production-ready containers  
 
 ---
 
-## layer Responsibilities
+## Layer Responsibilities
 
 ### 1. Controller Layer (`controller/`)
 
+**GeoController (CW1):**
+- Handles geographic computation endpoints
+- Validates input coordinates and regions
+- Returns calculated distances, positions, and containment checks
+
+**DroneController (CW2):**
+- Manages drone query endpoints (static and dynamic)
+- Handles availability checking for dispatches
+- Orchestrates delivery path calculation
+- Converts paths to GeoJSON format
+
 **Example Controller Method:**
 ```java
-@PostMapping("/distanceTo")
-public ResponseEntity<Double> distanceTo(@RequestBody TwoPositionsRequest request) {
-    // Validation
-    if (request == null || !request.getPosition1().isValid()) {
-        return ResponseEntity.badRequest().build();
+@PostMapping("/calcDeliveryPath")
+public ResponseEntity<DeliveryPathResponse> calculateDeliveryPath(
+        @RequestBody List<MedDispatchRec> dispatches) {
+    
+    DeliveryPathResponse response = droneQueryService.calcDeliveryPath(dispatches);
+    
+    if (response == null) {
+        // Return empty response with 200 OK (all requests valid)
+        return ResponseEntity.ok(new DeliveryPathResponse());
     }
-    // Delegate to service
-    double distance = geoService.calculateDistance(
-        request.getPosition1(), 
-        request.getPosition2()
-    );
-    return ResponseEntity.ok(distance);
+    
+    return ResponseEntity.ok(response);
 }
 ```
 
@@ -91,23 +126,25 @@ public ResponseEntity<Double> distanceTo(@RequestBody TwoPositionsRequest reques
 - ✅ Core business logic
 - ✅ Complex calculations and algorithms
 - ✅ Data transformation
-- ✅ Orchestrate calls to repositories (when persistence added)
-- ✅ Transaction management (future enhancement)
+- ✅ External API integration (ILP REST service)
+- ✅ Path optimization strategies
 
 **Key Algorithms Implemented:**
 
-#### 1️⃣ Euclidean Distance Calculation
+#### CW1 - Geographic Algorithms
+
+##### 1️⃣ Euclidean Distance Calculation
 ```java
 distance = √((lng1 - lng2)² + (lat1 - lat2)²)
 ```
 
-#### 2️⃣ Proximity Check
+##### 2️⃣ Proximity Check
 ```java
 isClose = distance < 0.00015
 ```
 Two positions are considered "close" if their Euclidean distance is less than 0.00015 degrees.
 
-#### 3️⃣ Next Position Calculation
+##### 3️⃣ Next Position Calculation
 ```java
 newLng = startLng + MOVE_DISTANCE * cos(angle)
 newLat = startLat + MOVE_DISTANCE * sin(angle)
@@ -117,26 +154,110 @@ MOVE_DISTANCE = 0.00015
 - Movement distance is fixed at 0.00015 degrees
 - Angle 999 represents hovering (no movement)
 
-#### 4️⃣ Point-in-Polygon Detection (Ray Casting Algorithm)
+##### 4️⃣ Point-in-Polygon Detection (Ray Casting Algorithm)
 - Cast a horizontal ray from the test point to infinity (rightward)
 - Count intersections with polygon edges
 - **Odd number of intersections** → Point is **inside**
 - **Even number of intersections** → Point is **outside**
 - Points on the boundary are considered **inside**
 
+#### CW2 - Drone Delivery Algorithms
+
+##### 5️⃣ Dynamic Attribute Querying
+Uses Java Reflection to query drone capabilities dynamically:
+```java
+// Support operators: =, !=, <, >
+// Example: capacity > 8 AND cooling = true
+```
+
+##### 6️⃣ Availability Validation
+Checks drone availability based on:
+- Day of week (MONDAY-SUNDAY)
+- Time ranges (from-until)
+- Service point location
+- Capacity and special requirements (cooling/heating)
+
+##### 7️⃣ Path Optimization - Three Strategies
+
+**Strategy 1: Single Drone Optimization**
+- Find one drone that can handle all deliveries
+- Minimize total moves by optimizing delivery order
+- Most efficient for clustered deliveries
+
+**Strategy 2: Nearest Service Point Assignment**
+- Assign each delivery to its nearest service point
+- Use multiple drones for geographically distributed deliveries
+- Reduces total moves when deliveries are spread out
+
+**Strategy 3: Multi-Drone Partitioning**
+- Partition deliveries by requirements (cooling, heating, capacity)
+- Handle conflicting requirements across multiple drones
+- Fallback when single drone cannot satisfy all constraints
+
+**Selection Criteria:**
+1. Primary: Minimize total moves
+2. Secondary: Minimize total cost (if moves are equal)
+
+##### 8️⃣ Cost Calculation (Pro-Rata Distribution)
+```java
+totalFlightCost = (totalMoves × costPerMove) + costInitial + costFinal
+costPerDelivery = totalFlightCost / numberOfDeliveries
+```
+- Fixed costs (initial + final) distributed equally across all deliveries
+- Move costs shared proportionally
+- Example: 3 deliveries in 1,200 moves → each carries 1/3 of total cost
+
+##### 9️⃣ Pathfinding with Constraints
+- Avoid restricted areas (no-fly zones)
+- Respect move limits (maxMoves)
+- Follow 22.5° angle increments
+- Hover at delivery points (duplicate coordinates indicate delivery)
+- Return to origin service point
+
+##### 🔟 GeoJSON Conversion
+Converts flight paths to GeoJSON LineString features:
+```json
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": null,
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[lng, lat], [lng, lat], ...]
+      }
+    }
+  ]
+}
+```
+
 ---
 
-### 3. Repository Layer (`repository/`)
+### 3. Configuration Layer (`configuration/`)
 
-**Current Status:** Infrastructure prepared for future persistence
+**IlpEndpointConfig:**
+- Manages external ILP REST service URL
+- Reads from environment variable `ILP_ENDPOINT`
+- Provides default fallback URL
+- Configures RestTemplate bean for HTTP requests
 
-**Responsibilities (when implemented):**
-- Data access operations (CRUD)
-- Query execution
-- Data mapping between entities and domain models
-- Database transaction coordination
+**Environment Variable Support:**
+```java
+@Bean
+public String ilpEndpoint() {
+    return System.getenv().getOrDefault(
+        "ILP_ENDPOINT",
+        "https://ilp-rest-2025-bvh6e9hschfagrgy.ukwest-01.azurewebsites.net"
+    );
+}
+```
 
-**Future Enhancement:** Will integrate with Spring Data JPA or custom DAO implementations.
+**Why Environment Variables?**
+- Auto-marker can inject different test endpoints
+- Development vs. production configuration
+- No code changes needed for different environments
+- Docker-friendly configuration
 
 ---
 
@@ -144,19 +265,29 @@ MOVE_DISTANCE = 0.00015
 
 **Contains Two Types of Classes:**
 
-#### A. Request/Response DTOs
+#### A. Request/Response DTOs (CW1)
 - `TwoPositionsRequest` - For distance and proximity endpoints
 - `NextPositionRequest` - For next position calculation
 - `IsInRegionRequest` - For region containment check
 - `Result` - Generic result wrapper
 
-#### B. Domain Models (Value Objects)
+#### B. Request/Response DTOs (CW2)
+- `QueryCondition` - Dynamic query conditions
+- `MedDispatchRec` - Medicine dispatch record
+- `DeliveryPathResponse` - Delivery path with drone assignments
+- `Drone` - Drone capabilities and metadata
+- `ServicePoint` - Drone service point location
+- `DroneServicePointAvailability` - Availability schedules
+- `RestrictedArea` - No-fly zones
+
+#### C. Domain Models (Value Objects)
 - `LngLat` - Geographic coordinate (longitude, latitude)
 - `Region` - Polygon region with vertices
 
 **Design Principles:**
 - Use Lombok annotations: `@Data`, `@NoArgsConstructor`, `@AllArgsConstructor`
 - Use Jakarta Validation annotations: `@NotNull`, `@Valid`
+- Use Jackson annotations: `@JsonProperty` for JSON mapping
 - Include business validation methods (e.g., `isValid()`, `isClosed()`)
 - Immutable where possible (Value Object pattern)
 
@@ -165,81 +296,30 @@ MOVE_DISTANCE = 0.00015
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class TwoPositionsRequest {
-    @NotNull
-    private LngLat position1;
+public class MedDispatchRec {
+    @JsonProperty("id")
+    private Integer id;
     
-    @NotNull
-    private LngLat position2;
-}
-```
-
-**Example Domain Model:**
-```java
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-public class L-colorLat {
-    @NotNull
-    @JsonProperty("lng")
-    private Double lng;
+    @JsonProperty("date")
+    private LocalDate date;
     
-    @NotNull
-    @JsonProperty("lat")
-    private Double lat;
+    @JsonProperty("time")
+    private LocalTime time;
     
-    @JsonIgnore
-    public boolean isValid() {
-        return lng != null && lat != null && 
-               lng >= -180 && lng <= 180 &&
-               lat >= -90 && lat <= 90;
-    }
+    @JsonProperty("requirements")
+    private Requirements requirements;
+    
+    @JsonProperty("delivery")
+    private Delivery delivery;
 }
 ```
 
 ---
-
-### 5. Entity Layer (`entity/`)
-
-**Current Status:** Reserved for future use
-
-**Will Contain:**
-- JPA/Hibernate annotated entity classes
-- `@Entity`, `@Table`, `@Id`, `@Column` annotations
-- Relationships: `@OneToMany`, `@ManyToOne`, etc.
-
-**Example (Future):**
-```java
-@Entity
-@Table(name = "positions")
-public class PositionEntity {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-    
-    @Embedded
-    private LngLat coordinates;
-    
-    private LocalDateTime timestamp;
-}
-```
-
----
-
-### 6. Configuration Layer (`configuration/`)
-
-**Contains:**
-- `IlpRestServiceConfig` - Bean definitions and REST service URL configuration
-- Application-wide configuration beans
-- External service clients setup
-
----
-
-### 7. Data Layer (`data/`)
-
-**Contains:**
-- `RuntimeEnvironment` - Runtime configuration and environment variables
-- Static data or constants used across the application
+- Cast a horizontal ray from the test point to infinity (rightward)
+- Count intersections with polygon edges
+- **Odd number of intersections** → Point is **inside**
+- **Even number of intersections** → Point is **outside**
+- Points on the boundary are considered **inside**
 
 ---
 
@@ -256,6 +336,7 @@ public class PositionEntity {
 
 ### Liskov Substitution Principle (LSP)
 - Any `GeoService` implementation can replace another
+- Any `DroneQueryService` implementation can replace another
 
 ### Interface Segregation Principle (ISP)
 - Interfaces contain only necessary methods
@@ -263,10 +344,10 @@ public class PositionEntity {
 
 ### Dependency Inversion Principle (DIP)
 ```java
-// Depend on abstraction
+// ✅ Good: Depend on abstraction
 private final GeoService geoService;
 
-// Depend on implementation
+// ❌ Bad: Depend on implementation
 private final GeoServiceImpl geoService;
 ```
 
@@ -276,7 +357,9 @@ private final GeoServiceImpl geoService;
 
 Base URL: `http://localhost:8080/api/v1`
 
-### 1. Get Welcome Page
+### CW1 - Geographic Services
+
+#### 1. Get Welcome Page
 ```http
 GET http://localhost:8080/api/v1/
 ```
@@ -290,7 +373,7 @@ Returns an HTML welcome page with service information.
 
 ---
 
-### 2. Get Student UID
+#### 2. Get Student UID
 ```http
 GET http://localhost:8080/api/v1/uid
 ```
@@ -304,7 +387,7 @@ curl http://localhost:8080/api/v1/uid
 
 ---
 
-### 3. Calculate Distance
+#### 3. Calculate Distance
 ```http
 POST http://localhost:8080/api/v1/distanceTo
 Content-Type: application/json
@@ -326,7 +409,7 @@ curl -X POST http://localhost:8080/api/v1/distanceTo ^
 
 ---
 
-### 4. Check Proximity
+#### 4. Check Proximity
 ```http
 POST http://localhost:8080/api/v1/closeTo
 Content-Type: application/json
@@ -348,7 +431,7 @@ curl -X POST http://localhost:8080/api/v1/closeTo ^
 
 ---
 
-### 5. Calculate Next Position
+#### 5. Calculate Next Position
 ```http
 POST http://localhost:8080/api/v1/nextPosition
 Content-Type: application/json
@@ -373,7 +456,7 @@ curl -X POST http://localhost:8080/api/v1/nextPosition ^
 
 ---
 
-### 6. Check Point in Region
+#### 6. Check Point in Region
 ```http
 POST http://localhost:8080/api/v1/isInRegion
 Content-Type: application/json
@@ -404,29 +487,309 @@ curl -X POST http://localhost:8080/api/v1/isInRegion ^
 
 ---
 
-### Quick Test - All Endpoints
+### CW2 - Drone Delivery Services
 
-You can test all endpoints sequentially with these commands:
-
-```cmd
-REM 1. Test welcome page
-curl http://localhost:8080/api/v1/
-
-REM 2. Test UID
-curl http://localhost:8080/api/v1/uid
-
-REM 3. Test distance calculation
-curl -X POST http://localhost:8080/api/v1/distanceTo -H "Content-Type: application/json" -d "{\"position1\": {\"lng\": -3.186874, \"lat\": 55.944494}, \"position2\": {\"lng\": -3.192473, \"lat\": 55.946233}}"
-
-REM 4. Test proximity check
-curl -X POST http://localhost:8080/api/v1/isCloseTo -H "Content-Type: application/json" -d "{\"position1\": {\"lng\": -3.186874, \"lat\": 55.944494}, \"position2\": {\"lng\": -3.186900, \"lat\": 55.944500}}"
-
-REM 5. Test next position
-curl -X POST http://localhost:8080/api/v1/nextPosition -H "Content-Type: application/json" -d "{\"start\": {\"lng\": -3.186874, \"lat\": 55.944494}, \"angle\": 90.0}"
-
-REM 6. Test point in region
-curl -X POST http://localhost:8080/api/v1/isInRegion -H "Content-Type: application/json" -d "{\"position\": {\"lng\": -3.186874, \"lat\": 55.944494}, \"region\": {\"name\": \"central-area\", \"vertices\": [{\"lng\": -3.192473, \"lat\": 55.946233}, {\"lng\": -3.184319, \"lat\": 55.946233}, {\"lng\": -3.184319, \"lat\": 55.942617}, {\"lng\": -3.192473, \"lat\": 55.942617}, {\"lng\": -3.192473, \"lat\": 55.946233}]}}"
+#### 7. Get Drones with Cooling
+```http
+GET http://localhost:8080/api/v1/dronesWithCooling/{state}
 ```
+
+**Example:**
+```cmd
+curl http://localhost:8080/api/v1/dronesWithCooling/true
+```
+
+**Response:**
+```json
+[1, 5, 8, 9]
+```
+
+Returns array of drone IDs that have (true) or don't have (false) cooling capability.
+
+---
+
+#### 8. Get Drone Details by ID
+```http
+GET http://localhost:8080/api/v1/droneDetails/{id}
+```
+
+**Example:**
+```cmd
+curl http://localhost:8080/api/v1/droneDetails/4
+```
+
+**Response:**
+```json
+{
+  "name": "Drone 4",
+  "id": 4,
+  "capability": {
+    "cooling": false,
+    "heating": true,
+    "capacity": 8.0,
+    "maxMoves": 1000,
+    "costPerMove": 0.02,
+    "costInitial": 1.4,
+    "costFinal": 2.5
+  }
+}
+```
+
+**Note:** Returns 404 if drone ID not found (exception to 200-only rule).
+
+---
+
+#### 9. Query Drones by Single Attribute (Path Variable)
+```http
+GET http://localhost:8080/api/v1/queryAsPath/{attributeName}/{attributeValue}
+```
+
+**Example:**
+```cmd
+curl http://localhost:8080/api/v1/queryAsPath/capacity/8
+```
+
+**Response:**
+```json
+[2, 4, 7, 9]
+```
+
+Returns drone IDs where the attribute equals the specified value.
+
+**Supported Attributes:**
+- `capacity` - Drone cargo capacity
+- `cooling` - true/false
+- `heating` - true/false
+- `maxMoves` - Maximum flight moves
+- `costPerMove` - Cost per move
+
+---
+
+#### 10. Query Drones by Multiple Conditions (POST)
+```http
+POST http://localhost:8080/api/v1/query
+Content-Type: application/json
+
+[
+  {
+    "attribute": "capacity",
+    "operator": ">",
+    "value": "8"
+  },
+  {
+    "attribute": "cooling",
+    "operator": "=",
+    "value": "true"
+  }
+]
+```
+
+**Using curl:**
+```cmd
+curl -X POST http://localhost:8080/api/v1/query ^
+  -H "Content-Type: application/json" ^
+  -d "[{\"attribute\":\"capacity\",\"operator\":\">\",\"value\":\"8\"},{\"attribute\":\"cooling\",\"operator\":\"=\",\"value\":\"true\"}]"
+```
+
+**Response:**
+```json
+[8]
+```
+
+**Supported Operators:**
+- `=` - Equals (all types)
+- `!=` - Not equals (numerical attributes)
+- `<` - Less than (numerical attributes)
+- `>` - Greater than (numerical attributes)
+
+**Conditions are joined with AND** (all must be true).
+
+---
+
+#### 11. Query Available Drones for Dispatches
+```http
+POST http://localhost:8080/api/v1/queryAvailableDrones
+Content-Type: application/json
+
+[
+  {
+    "id": 123,
+    "date": "2025-12-22",
+    "time": "14:30",
+    "requirements": {
+      "capacity": 0.75,
+      "cooling": false,
+      "heating": true,
+      "maxCost": 13.5
+    },
+    "delivery": {
+      "lng": -3.186874,
+      "lat": 55.944494
+    }
+  }
+]
+```
+
+**Response:**
+```json
+[2, 4, 6, 7]
+```
+
+Returns drone IDs that can fulfill **ALL** dispatches in the array.
+
+**Validation Checks:**
+- ✅ Capacity sufficient
+- ✅ Cooling/heating requirements met
+- ✅ Availability at specified date/time
+- ✅ Estimated moves within maxMoves limit
+- ✅ Estimated cost within maxCost (if specified)
+
+**AND Condition:** Only drones that can handle **every single dispatch** are returned.
+
+---
+
+#### 12. Calculate Delivery Path
+```http
+POST http://localhost:8080/api/v1/calcDeliveryPath
+Content-Type: application/json
+
+[
+  {
+    "id": 123,
+    "date": "2025-12-22",
+    "time": "14:30",
+    "requirements": {
+      "capacity": 0.75,
+      "cooling": false,
+      "heating": true
+    },
+    "delivery": {
+      "lng": -3.186874,
+      "lat": 55.944494
+    }
+  },
+  {
+    "id": 124,
+    "date": "2025-12-22",
+    "time": "15:00",
+    "requirements": {
+      "capacity": 1.2,
+      "heating": true
+    },
+    "delivery": {
+      "lng": -3.189543,
+      "lat": 55.945523
+    }
+  }
+]
+```
+
+**Response:**
+```json
+{
+  "totalCost": 45.67,
+  "totalMoves": 1234,
+  "dronePaths": [
+    {
+      "droneId": 4,
+      "deliveries": [
+        {
+          "deliveryId": 123,
+          "flightPath": [
+            {"lng": -3.1863580788986368, "lat": 55.94468066708487},
+            {"lng": -3.186359, "lat": 55.94468066708487},
+            {"lng": -3.186874, "lat": 55.944494},
+            {"lng": -3.186874, "lat": 55.944494}
+          ]
+        },
+        {
+          "deliveryId": 124,
+          "flightPath": [
+            {"lng": -3.186874, "lat": 55.944494},
+            {"lng": -3.189543, "lat": 55.945523},
+            {"lng": -3.189543, "lat": 55.945523},
+            {"lng": -3.1863580788986368, "lat": 55.94468066708487}
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Response Structure:**
+- `totalCost`: Total cost for all deliveries (pro-rata distributed)
+- `totalMoves`: Total number of moves across all drones
+- `dronePaths`: Array of drone delivery sequences
+
+**Flight Path Rules:**
+- Start at service point
+- Duplicate coordinates = hover (delivery made)
+- Return to same service point
+- Respect no-fly zones
+- Follow 22.5° angle increments
+- Stay within maxMoves limit
+
+**Optimization Strategies:**
+1. Single drone optimization (best for clustered deliveries)
+2. Nearest service point assignment (best for distributed deliveries)
+3. Multi-drone partitioning (handles conflicting requirements)
+
+**Selection:** Minimizes moves first, then cost.
+
+---
+
+#### 13. Calculate Delivery Path as GeoJSON
+```http
+POST http://localhost:8080/api/v1/calcDeliveryPathAsGeoJson
+Content-Type: application/json
+
+[
+  {
+    "id": 123,
+    "date": "2025-12-22",
+    "time": "14:30",
+    "requirements": {
+      "capacity": 0.75,
+      "heating": true
+    },
+    "delivery": {
+      "lng": -3.186874,
+      "lat": 55.944494
+    }
+  }
+]
+```
+
+**Response:**
+```json
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": null,
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-3.1863580788986368, 55.94468066708487],
+          [-3.186359, 55.94468066708487],
+          [-3.186874, 55.944494],
+          [-3.186874, 55.944494],
+          [-3.1863580788986368, 55.94468066708487]
+        ]
+      }
+    }
+  ]
+}
+```
+
+**GeoJSON Format:**
+- Each delivery becomes a separate LineString feature
+- Can be visualized at https://geojson.io
+- Multiple trips = multiple LineString features
+- Properties set to null (automarker only checks paths)
+- No labels or markers (just the flight paths)
 
 ---
 
@@ -435,7 +798,7 @@ curl -X POST http://localhost:8080/api/v1/isInRegion -H "Content-Type: applicati
 ### Prerequisites
 - Java 21 or higher
 - Maven 3.9.9 or higher
-- Docker (optional, for containerized deployment)
+- Docker (for containerized deployment)
 
 ### Using Maven (Windows)
 
@@ -451,7 +814,7 @@ mvnw.cmd spring-boot:run
 
 Or run the JAR directly:
 ```cmd
-java -jar target\IlpTutorial1-0.0.1-SNAPSHOT.jar
+java -jar target\ilp_submission_image.jar
 ```
 
 The service will start on `http://localhost:8080`
@@ -460,38 +823,109 @@ The service will start on `http://localhost:8080`
 
 **Build the Docker image:**
 ```cmd
-docker build -t ilp-cw1 .
+docker build -t ilp-submission-2 .
+```
+
+**Save Docker image to TAR file (for submission):**
+```cmd
+docker save ilp-submission-2 -o ilp_submission_image.tar
+```
+
+**Load Docker image from TAR file:**
+```cmd
+docker load -i ilp_submission_image.tar
 ```
 
 **Run the container:**
 ```cmd
-docker run -p 8080:8080 ilp-cw1
+docker run -p 8080:8080 ilp-submission-2
 ```
 
-**With custom service URL environment variable:**
+**With custom ILP endpoint environment variable:**
 ```cmd
-docker run -p 8080:8080 -e ILP_SERVICE_URL=https://your-service-url.com ilp-cw1
+docker run -p 8080:8080 -e ILP_ENDPOINT=https://your-ilp-service-url.com ilp-submission-2
+```
+
+**Test the service:**
+```cmd
+curl http://localhost:8080/api/v1/uid
+```
+
+### Docker Image Management
+
+**List Docker images:**
+```cmd
+docker images
+```
+
+**Remove a Docker image:**
+```cmd
+docker rmi ilp-submission-2
+```
+
+**Stop running container:**
+```cmd
+docker ps
+docker stop <container_id>
 ```
 
 ---
 
-## Testing
+## Environment Variables
 
-### Run All Tests
-```cmd
-mvnw.cmd test
+### ILP_ENDPOINT
+
+The service connects to an external ILP REST API for drone, service point, and restricted area data.
+
+**Default URL:**
+```
+https://ilp-rest-2025-bvh6e9hschfagrgy.ukwest-01.azurewebsites.net
 ```
 
-### Test Coverage
-The project includes:
-- **Unit Tests**: Service layer algorithm testing (`GeoServiceUnitTest`)
-- **Integration Tests**: Full application context testing (`ApplicationIntegrationTest`, `ApiIntegrationTest`)
-- **Web Layer Tests**: Controller endpoint testing (`GeoControllerWebTest`)
+**Override via environment variable:**
+```cmd
+REM Windows CMD
+set ILP_ENDPOINT=https://your-custom-endpoint.com
+mvnw.cmd spring-boot:run
 
-### Writing Tests
-- **Unit Tests**: Focus on testing Service implementations and algorithms
-- **Controller Tests**: Use MockMvc or WebTestClient
-- **Integration Tests**: Test the full request/response cycle
+REM Docker
+docker run -p 8080:8080 -e ILP_ENDPOINT=https://your-custom-endpoint.com ilp-submission-2
+```
+
+**Testing endpoint switching:**
+```cmd
+REM Test with Google (should fail with 404)
+docker run -p 8080:8080 -e ILP_ENDPOINT=https://www.google.com ilp-submission-2
+```
+
+If your service is correctly configured, it will attempt to call `https://www.google.com/drones` and receive a 404 error, confirming that the environment variable is being read properly.
+
+---
+
+## Submission Package
+
+The submission should be a ZIP file containing:
+
+```
+ilp_submission_2/
+├── ilp_submission_image.tar      # Docker image (TAR format)
+├── src/                          # Java source files
+├── pom.xml                       # Maven configuration
+├── Dockerfile                    # Docker build configuration
+├── README.md                     # This documentation
+└── (other project files)
+```
+
+**Create submission package:**
+```cmd
+cd C:\Users\franksun\Desktop\uni_of_edinburgh\Year3\Informatics_Large_Pratical\coursework\Ilp_submission_2
+Compress-Archive -Path Cw2-main\* -DestinationPath ilp_submission_2.zip
+```
+
+**Verify TAR file exists:**
+```cmd
+dir Cw2-main\ilp_submission_image.tar
+```
 
 ---
 
@@ -501,43 +935,51 @@ The project includes:
 src/
 ├── main/
 │   ├── java/uk/ac/ed/acp/cw2/
-│   │   ├── Application.java                    # Main application entry point
+│   │   ├── Application.java                    # Main Spring Boot application
 │   │   ├── configuration/
-│   │   │   └── IlpRestServiceConfig.java       # Configuration beans
+│   │   │   └── IlpEndpointConfig.java          # REST client & environment config
 │   │   ├── controller/
-│   │   │   └── GeoController.java              # REST API endpoints
+│   │   │   ├── GeoController.java              # CW1: Geographic endpoints
+│   │   │   └── DroneController.java            # CW2: Drone delivery endpoints
 │   │   ├── service/
-│   │   │   ├── GeoService.java                 # Service interface
+│   │   │   ├── GeoService.java                 # CW1: Geographic service interface
+│   │   │   ├── DroneQueryService.java          # CW2: Drone service interface
 │   │   │   └── impl/
-│   │   │       └── GeoServiceImpl.java         # Business logic & algorithms
-│   │   ├── repository/
-│   │   │   └── SimpleRepository.java           # Data access layer (prepared)
+│   │   │       ├── GeoServiceImpl.java         # CW1: Geographic algorithms
+│   │   │       └── DroneQueryServiceImpl.java  # CW2: Drone delivery logic
 │   │   ├── dto/
-│   │   │   ├── TwoPositionsRequest.java        # Request DTOs
-│   │   │   ├── NextPositionRequest.java
-│   │   │   ├── IsInRegionRequest.java
-│   │   │   ├── Result.java                     # Response wrapper
-│   │   │   ├── LngLat.java                     # Domain model: Coordinate
-│   │   │   └── Region.java                     # Domain model: Polygon region
-│   │   ├── entity/                             # Reserved for JPA entities
+│   │   │   ├── LngLat.java                     # Domain: Coordinate
+│   │   │   ├── Region.java                     # Domain: Polygon region
+│   │   │   ├── TwoPositionsRequest.java        # CW1: Request DTO
+│   │   │   ├── NextPositionRequest.java        # CW1: Request DTO
+│   │   │   ├── IsInRegionRequest.java          # CW1: Request DTO
+│   │   │   ├── Result.java                     # CW1: Response wrapper
+│   │   │   ├── Drone.java                      # CW2: Drone entity
+│   │   │   ├── ServicePoint.java               # CW2: Service point entity
+│   │   │   ├── RestrictedArea.java             # CW2: No-fly zone entity
+│   │   │   ├── DroneServicePointAvailability.java  # CW2: Availability schedule
+│   │   │   ├── MedDispatchRec.java             # CW2: Dispatch request
+│   │   │   ├── QueryCondition.java             # CW2: Query condition
+│   │   │   └── DeliveryPathResponse.java       # CW2: Delivery path response
 │   │   └── data/
-│   │       └── RuntimeEnvironment.java         # Environment configuration
+│   │       └── RuntimeEnvironment.java         # Runtime configuration
 │   └── resources/
 │       └── application.yml                      # Application configuration
 └── test/
     └── java/uk/ac/ed/acp/cw2/
-        ├── GeoServiceUnitTest.java              # Service layer tests
-        ├── GeoControllerWebTest.java            # Controller tests
-        ├── ApiIntegrationTest.java              # API integration tests
-        └── ApplicationIntegrationTest.java      # Full app context tests
+        ├── GeoServiceUnitTest.java              # CW1: Service layer tests
+        ├── GeoControllerWebTest.java            # CW1: Controller tests
+        ├── ApiIntegrationTest.java              # Integration tests
+        ├── ApplicationIntegrationTest.java      # Full app context tests
+        └── AcpCw2ApplicationTests.java          # Basic application tests
 ```
 
 ### Architecture Highlights
 
-✅ **Clean Separation**: Each package has a single, clear responsibility  
+✅ **Clean Separation**: CW1 (Geographic) + CW2 (Drone Delivery) clearly separated  
 ✅ **Testability**: Interface-based design allows easy mocking  
-✅ **Extensibility**: Repository and entity layers ready for persistence  
-✅ **Pragmatic**: Combined DTOs and domain models to avoid over-engineering  
+✅ **External Data Integration**: All drone/service point data from ILP REST API  
+✅ **Pragmatic Design**: DTOs double as domain models (no over-engineering)  
 ✅ **SOLID Principles**: Dependency inversion, single responsibility throughout  
 
 ---
@@ -576,20 +1018,7 @@ When contributing to this project:
 4. **DTOs should be simple** - Validation-driven with minimal logic
 5. **Document complex algorithms** - Add comments for maintainability
 6. **Follow Java naming conventions** - Use standard code style
-7. **Repository/Entity layers** - Plan for future persistence needs
-
-### Architecture Decision Records
-
-**Why combine domain models with DTOs?**
-- Stateless API doesn't require separate domain layer
-- `LngLat` and `Region` are immutable value objects
-- Reduces boilerplate without sacrificing clarity
-- Easy to refactor when persistence is added
-
-**When to refactor?**
-- When adding database persistence, create true `@Entity` classes
-- Move business logic from DTOs to domain services
-- Implement repository interfaces with Spring Data JPA
+7. **Test with external ILP service** - Always verify against real data
 
 ---
 
@@ -602,6 +1031,89 @@ This project is part of the Informatics Large Practical coursework at the Univer
 ## 👤 Author
 
 **Student ID:** s2564099  
-**Course:** Informatics Large Practical - Coursework 1  
+**Course:** Informatics Large Practical - Coursework 2  
 **Institution:** University of Edinburgh - Year 3  
 **Academic Year:** 2024/2025
+
+---
+
+## 📚 External Dependencies
+
+### ILP REST Service
+
+This service depends on an external REST API hosted on Azure:
+- **Base URL**: `https://ilp-rest-2025-bvh6e9hschfagrgy.ukwest-01.azurewebsites.net`
+- **Endpoints Used**:
+  - `/drones` - Drone capabilities and metadata
+  - `/service-points` - Drone service point locations
+  - `/restricted-areas` - No-fly zones
+  - `/drones-for-service-points` - Drone availability schedules
+
+**Data Structure Examples:**
+
+**Drone:**
+```json
+{
+  "name": "Drone 1",
+  "id": 1,
+  "capability": {
+    "cooling": true,
+    "heating": true,
+    "capacity": 4.0,
+    "maxMoves": 2000,
+    "costPerMove": 0.01,
+    "costInitial": 4.3,
+    "costFinal": 6.5
+  }
+}
+```
+
+**Service Point:**
+
+  "name": "Appleton Tower",
+  "id": 1,
+  "location": {
+    "lng": -3.1863580788986368,
+    "lat": 55.94468066708487,
+    "alt": 50.0
+  }
+}
+```
+
+**Restricted Area:**
+```json
+{
+  "name": "George Square Area",
+  "id": 1,
+  "limits": {"lower": 0, "upper": -1},
+  "vertices": [
+    {"lng": -3.190578818321228, "lat": 55.94402412577528},
+    {"lng": -3.1899887323379517, "lat": 55.94284650540911},
+    ...
+  ]
+}
+```
+
+**Drone Availability:**
+```json
+{
+  "servicePointId": 1,
+  "drones": [
+    {
+      "id": "1",
+      "availability": [
+        {
+          "dayOfWeek": "MONDAY",
+          "from": "00:00:00",
+          "until": "23:59:59"
+        }
+      ]
+    }
+  ]
+}
+```
+---
+
+**Last Updated:** 2025-11-24  
+**Version:** 2.0 (CW2 Complete)
+
