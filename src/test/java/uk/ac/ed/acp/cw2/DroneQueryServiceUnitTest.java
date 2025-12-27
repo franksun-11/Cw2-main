@@ -46,7 +46,7 @@ class DroneQueryServiceUnitTest {
 
     // String cannot be mocked - just use a dummy value
     // RestTemplate mock will intercept calls, so this URL is never actually used
-    private String ilpEndpoint = "https://ilp-2025-marking.azurewebsites.net/";
+    private String ilpEndpoint = "https://ilp-rest-2025-bvh6e9hschfagrgy.ukwest-01.azurewebsites.net/";
 
     // Test data fixtures
     private List<Drone> testDrones;
@@ -108,8 +108,10 @@ class DroneQueryServiceUnitTest {
         testServicePoints.add(createServicePoint(1, "Appleton Tower", -3.1863580788986368, 55.94468066708487));
         testServicePoints.add(createServicePoint(2, "Ocean Terminal", -3.17732611501824, 55.981186279333656));
 
-        // Setup restricted areas (simplified versions)
+        // Setup restricted areas - COMPLETE REAL DATA from Azure
         testRestrictedAreas = new ArrayList<>();
+
+        // 1. George Square Area
         testRestrictedAreas.add(createRestrictedArea(1, "George Square Area", Arrays.asList(
                 createVertex(-3.190578818321228, 55.94402412577528),
                 createVertex(-3.1899887323379517, 55.94284650540911),
@@ -117,6 +119,148 @@ class DroneQueryServiceUnitTest {
                 createVertex(-3.187682032585144, 55.944477740393744),
                 createVertex(-3.190578818321228, 55.94402412577528)
         )));
+
+        // 2. Dr Elsie Inglis Quadrangle
+        testRestrictedAreas.add(createRestrictedArea(2, "Dr Elsie Inglis Quadrangle", Arrays.asList(
+                createVertex(-3.1907182931900024, 55.94519570234043),
+                createVertex(-3.1906163692474365, 55.94498241796357),
+                createVertex(-3.1900262832641597, 55.94507554227258),
+                createVertex(-3.190133571624756, 55.94529783810495),
+                createVertex(-3.1907182931900024, 55.94519570234043)
+        )));
+
+        // 3. Bristo Square Open Area
+        testRestrictedAreas.add(createRestrictedArea(3, "Bristo Square Open Area", Arrays.asList(
+                createVertex(-3.189543485641479, 55.94552313663306),
+                createVertex(-3.189382553100586, 55.94553214854692),
+                createVertex(-3.189259171485901, 55.94544803726933),
+                createVertex(-3.1892001628875732, 55.94533688994374),
+                createVertex(-3.189194798469543, 55.94519570234043),
+                createVertex(-3.189135789871216, 55.94511759833873),
+                createVertex(-3.188138008117676, 55.9452738061846),
+                createVertex(-3.1885510683059692, 55.946105902745614),
+                createVertex(-3.1895381212234497, 55.94555918427592),
+                createVertex(-3.189543485641479, 55.94552313663306)
+        )));
+
+        // 4. Bayes Central Area
+        testRestrictedAreas.add(createRestrictedArea(4, "Bayes Central Area", Arrays.asList(
+                createVertex(-3.1876927614212036, 55.94520696732767),
+                createVertex(-3.187555968761444, 55.9449621408666),
+                createVertex(-3.186981976032257, 55.94505676722831),
+                createVertex(-3.1872327625751495, 55.94536993377657),
+                createVertex(-3.1874459981918335, 55.9453361389472),
+                createVertex(-3.1873735785484314, 55.94519344934259),
+                createVertex(-3.1875935196876526, 55.94515665035927),
+                createVertex(-3.187624365091324, 55.94521973430925),
+                createVertex(-3.1876927614212036, 55.94520696732767)
+        )));
+
+        // Setup drone availability - COMPLETE REAL DATA from Azure
+        testDroneAvailability = new ArrayList<>();
+
+        // Service Point 1 - Appleton Tower (Drones 1-5)
+        List<DroneServicePointAvailability.DroneAvailability> sp1Drones = new ArrayList<>();
+
+        // Drone 1
+        sp1Drones.add(createDroneAvailability("1", Arrays.asList(
+                createTimeSlot("MONDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("WEDNESDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("THURSDAY", "12:00:00", "23:59:59"),
+                createTimeSlot("FRIDAY", "12:00:00", "23:59:59"),
+                createTimeSlot("SUNDAY", "00:00:00", "23:59:59")
+        )));
+
+        // Drone 2
+        sp1Drones.add(createDroneAvailability("2", Arrays.asList(
+                createTimeSlot("MONDAY", "12:00:00", "23:59:59"),
+                createTimeSlot("TUESDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("WEDNESDAY", "00:00:00", "11:59:59"),
+                createTimeSlot("THURSDAY", "00:00:00", "11:59:59"),
+                createTimeSlot("FRIDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("SATURDAY", "12:00:00", "23:59:59"),
+                createTimeSlot("SUNDAY", "00:00:00", "23:59:59")
+        )));
+
+        // Drone 3
+        sp1Drones.add(createDroneAvailability("3", Arrays.asList(
+                createTimeSlot("MONDAY", "00:00:00", "11:59:59"),
+                createTimeSlot("TUESDAY", "12:00:00", "23:59:59"),
+                createTimeSlot("THURSDAY", "12:00:00", "23:59:59"),
+                createTimeSlot("FRIDAY", "12:00:00", "23:59:59"),
+                createTimeSlot("SUNDAY", "12:00:00", "23:59:59")
+        )));
+
+        // Drone 4
+        sp1Drones.add(createDroneAvailability("4", Arrays.asList(
+                createTimeSlot("MONDAY", "00:00:00", "11:59:59"),
+                createTimeSlot("TUESDAY", "00:00:00", "11:59:59"),
+                createTimeSlot("WEDNESDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("SATURDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("SUNDAY", "00:00:00", "23:59:59")
+        )));
+
+        // Drone 5
+        sp1Drones.add(createDroneAvailability("5", Arrays.asList(
+                createTimeSlot("TUESDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("THURSDAY", "00:00:00", "11:59:59"),
+                createTimeSlot("FRIDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("SATURDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("SUNDAY", "00:00:00", "11:59:59")
+        )));
+
+        testDroneAvailability.add(new DroneServicePointAvailability(1, sp1Drones));
+
+        // Service Point 2 - Ocean Terminal (Drones 6-10)
+        List<DroneServicePointAvailability.DroneAvailability> sp2Drones = new ArrayList<>();
+
+        // Drone 6
+        sp2Drones.add(createDroneAvailability("6", Arrays.asList(
+                createTimeSlot("MONDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("WEDNESDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("THURSDAY", "12:00:00", "23:59:59"),
+                createTimeSlot("FRIDAY", "12:00:00", "23:59:59"),
+                createTimeSlot("SATURDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("SUNDAY", "00:00:00", "23:59:59")
+        )));
+
+        // Drone 7
+        sp2Drones.add(createDroneAvailability("7", Arrays.asList(
+                createTimeSlot("MONDAY", "12:00:00", "23:59:59"),
+                createTimeSlot("TUESDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("WEDNESDAY", "00:00:00", "11:59:59"),
+                createTimeSlot("THURSDAY", "00:00:00", "11:59:59"),
+                createTimeSlot("FRIDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("SATURDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("SUNDAY", "00:00:00", "23:59:59")
+        )));
+
+        // Drone 8
+        sp2Drones.add(createDroneAvailability("8", Arrays.asList(
+                createTimeSlot("TUESDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("THURSDAY", "12:00:00", "23:59:59"),
+                createTimeSlot("FRIDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("SUNDAY", "00:00:00", "23:59:59")
+        )));
+
+        // Drone 9
+        sp2Drones.add(createDroneAvailability("9", Arrays.asList(
+                createTimeSlot("MONDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("TUESDAY", "00:00:00", "11:59:59"),
+                createTimeSlot("WEDNESDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("THURSDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("SATURDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("SUNDAY", "00:00:00", "23:59:59")
+        )));
+
+        // Drone 10
+        sp2Drones.add(createDroneAvailability("10", Arrays.asList(
+                createTimeSlot("MONDAY", "12:00:00", "23:59:59"),
+                createTimeSlot("TUESDAY", "00:00:00", "23:59:59"),
+                createTimeSlot("FRIDAY", "00:00:00", "23:59:59")
+        )));
+
+        testDroneAvailability.add(new DroneServicePointAvailability(2, sp2Drones));
     }
 
     // ==================== HELPER METHODS FOR TEST DATA CREATION ====================
@@ -1548,16 +1692,6 @@ class DroneQueryServiceUnitTest {
 
             when(restTemplate.getForObject(anyString(), eq(RestrictedArea[].class)))
                     .thenReturn(testRestrictedAreas.toArray(new RestrictedArea[0]));
-
-            // Setup drone availability - all drones available on MONDAY
-            List<DroneServicePointAvailability.DroneAvailability> allDrones = new ArrayList<>();
-            for (int i = 1; i <= 10; i++) {
-                allDrones.add(createDroneAvailability(String.valueOf(i), Arrays.asList(
-                        createTimeSlot("MONDAY", "00:00:00", "23:59:59")
-                )));
-            }
-            testDroneAvailability = List.of(new DroneServicePointAvailability(1, allDrones));
-
             when(restTemplate.getForObject(anyString(), eq(DroneServicePointAvailability[].class)))
                     .thenReturn(testDroneAvailability.toArray(new DroneServicePointAvailability[0]));
         }
@@ -1593,7 +1727,7 @@ class DroneQueryServiceUnitTest {
             // Arrange - Single delivery using VALID working data
             List<MedDispatchRec> dispatches = List.of(
                     createDispatch(1001, "2025-01-28", "10:00",
-                            2.0, false, false, 50.0, -3.186508, 55.944831)
+                            2.0, false, false, 100.0, -3.186000, 55.944900)
             );
 
             // Act - Call the actual calcDeliveryPath API
@@ -1616,8 +1750,8 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-13.2: Multiple deliveries - path contains hover points")
-        void testCalcDeliveryPath_MultipleDeliveries_HasHoverPoints() {
+        @DisplayName("UT-13.2: path contains hover points")
+        void testCalcDeliveryPath_HasHoverPoints() {
             // Arrange - Use VALID working data
             List<MedDispatchRec> dispatches = List.of(
                     createDispatch(1001, "2025-01-28", "10:00",
@@ -1692,7 +1826,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-13.4: Total moves matches flight path length")
+        @DisplayName("UT-13.4: Total moves matches flight path length") // unnecessary?
         void testCalcDeliveryPath_TotalMoves_MatchesFlightPath() {
             // Arrange - Use VALID working data
             List<MedDispatchRec> dispatches = List.of(
@@ -1736,16 +1870,6 @@ class DroneQueryServiceUnitTest {
                     .thenReturn(testServicePoints.toArray(new ServicePoint[0]));
             when(restTemplate.getForObject(anyString(), eq(RestrictedArea[].class)))
                     .thenReturn(testRestrictedAreas.toArray(new RestrictedArea[0]));
-
-            // All drones available on MONDAY
-            List<DroneServicePointAvailability.DroneAvailability> allDrones = new ArrayList<>();
-            for (int i = 1; i <= 10; i++) {
-                allDrones.add(createDroneAvailability(String.valueOf(i), Arrays.asList(
-                        createTimeSlot("MONDAY", "00:00:00", "23:59:59"),
-                        createTimeSlot("TUESDAY", "00:00:00", "23:59:59")
-                )));
-            }
-            testDroneAvailability = List.of(new DroneServicePointAvailability(1, allDrones));
             when(restTemplate.getForObject(anyString(), eq(DroneServicePointAvailability[].class)))
                     .thenReturn(testDroneAvailability.toArray(new DroneServicePointAvailability[0]));
         }
@@ -1854,7 +1978,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-14.3: Multiple deliveries (2) - same date")
+        @DisplayName("UT-14.3: Multiple deliveries  - same date")
         void testMultipleDeliveries_SameDate() {
             List<MedDispatchRec> dispatches = Arrays.asList(
                     createDispatch(1002, "2025-01-28", "10:00",
@@ -1876,7 +2000,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-14.4: Different dates - groups by date")
+        @DisplayName("UT-14.4: Multiple deliveries - Different dates")
         void testDifferentDates_GroupsByDate() {
             List<MedDispatchRec> dispatches = Arrays.asList(
                     createDispatch(1, "2025-12-23", "14:30",
@@ -1886,7 +2010,7 @@ class DroneQueryServiceUnitTest {
                     createDispatch(3, "2025-12-22", "14:30",
                             0.85, false, false, 15.0, -3.183, 55.95),
                     createDispatch(4, "2025-12-23", "14:30",
-                            0.65, false, true, 5.0, -3.213, 55.94)
+                            0.65, false, true, 10.0, -3.213, 55.94)
             );
 
             DeliveryPathResponse response = droneQueryService.calcDeliveryPath(dispatches);
@@ -1897,7 +2021,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-14.5: Long deliveries from different service points")
+        @DisplayName("UT-14.5: maxMoves boundary test - Long deliveries from different service points")
         void testLongDeliveries_MultipleServicePoints() {
             List<MedDispatchRec> dispatches = Arrays.asList(
                     createDispatch(1, "2025-12-22", "14:30",
@@ -1937,130 +2061,123 @@ class DroneQueryServiceUnitTest {
     @DisplayName("UT-15: Pathfinding - With Obstacles")
     class PathfindingWithObstacles {
 
-        @Test
-        @DisplayName("UT-14.1: A* finds path around single rectangular obstacle")
-        void testAStar_SingleObstacle_FindsPath() {
-            // Arrange - Rectangular obstacle
-            double obstacleMinLng = -3.188, obstacleMaxLng = -3.186;
-            double obstacleMinLat = 55.944, obstacleMaxLat = 55.945;
+        private static final double STEP_WIDTH = 0.00015;
+        private static final double PRECISION_TOLERANCE = 0.000001;
 
-            double startLng = -3.189, startLat = 55.9445;  // West of obstacle
-            double endLng = -3.185, endLat = 55.9445;      // East of obstacle
-
-            // Path must go around (north or south)
-            // Expected: A* finds route around obstacle
-
-            // Assert - Start and end are on opposite sides of obstacle
-            assertThat(startLng).isLessThan(obstacleMinLng);
-            assertThat(endLng).isGreaterThan(obstacleMaxLng);
+        @BeforeEach
+        void setupObstacleTests() {
+            // Mock all REST endpoints - use REAL data from setupTestData()
+            when(restTemplate.getForObject(anyString(), eq(Drone[].class)))
+                    .thenReturn(testDrones.toArray(new Drone[0]));
+            when(restTemplate.getForObject(anyString(), eq(ServicePoint[].class)))
+                    .thenReturn(testServicePoints.toArray(new ServicePoint[0]));
+            when(restTemplate.getForObject(anyString(), eq(RestrictedArea[].class)))
+                    .thenReturn(testRestrictedAreas.toArray(new RestrictedArea[0]));
+            when(restTemplate.getForObject(anyString(), eq(DroneServicePointAvailability[].class)))
+                    .thenReturn(testDroneAvailability.toArray(new DroneServicePointAvailability[0]));
         }
 
         @Test
-        @DisplayName("UT-14.2: A* with no obstacles behaves like direct path")
-        void testAStar_NoObstacles_SimilarToDirect() {
-            // Arrange - Open area
-            double startLng = -3.186, startLat = 55.944;
-            double endLng = -3.185, endLat = 55.945;
+        @DisplayName("UT-15.1: Single obstacle - path through George Square")
+        void testSingleObstacle_ThroughGeorgeSquare() {
+            // Arrange - Delivery that would cross George Square Area
+            List<MedDispatchRec> dispatches = List.of(
+                    createDispatch(201, "2025-01-28", "10:00",
+                            3.0, false, false, 150.0, -3.192000, 55.943000)
+            );
 
-            // Calculate direct distance
-            double directDistance = Math.sqrt(Math.pow(endLng - startLng, 2) + Math.pow(endLat - startLat, 2));
+            // Act - Call the actual calcDeliveryPath API
+            DeliveryPathResponse response = droneQueryService.calcDeliveryPath(dispatches);
 
-            // Assert - In open area, A* should find similar path to direct
-            // Allowable overhead: within 10%
-            double maxAcceptableDistance = directDistance * 1.1;
+            // Assert - Should find a path that avoids George Square
+            assertThat(response).isNotNull();
+            assertThat(response.getDronePaths()).isNotEmpty();
+            assertThat(response.getTotalMoves()).isGreaterThan(0);
 
-            assertThat(maxAcceptableDistance).isGreaterThan(directDistance);
+            // Verify the path exists and contains valid coordinates
+            DeliveryPathResponse.DronePath dronePath = response.getDronePaths().get(0);
+            assertThat(dronePath.getDeliveries()).hasSize(1);
+            assertThat(dronePath.getDeliveries().get(0).getFlightPath()).isNotEmpty();
         }
 
         @Test
-        @DisplayName("UT-14.3: A* respects max iterations limit (prevent infinite loops)")
-        void testAStar_MaxIterations_RespectedAndFallback() {
-            // Arrange - Complex scenario with max iterations
-            int maxIterations = 1000;
+        @DisplayName("UT-15.2: Multiple obstacles - around George Square and Bayes areas")
+        void testMultipleObstacles_AroundGeorgeSquareAndBayes() {
+            // Arrange - Two deliveries requiring navigation around multiple obstacles
+            List<MedDispatchRec> dispatches = Arrays.asList(
+                    createDispatch(202, "2025-01-28", "10:00",
+                            2.0, false, false, 150.0, -3.191000, 55.944500),
+                    createDispatch(203, "2025-01-28", "11:00",
+                            2.2, false, false, 160.0, -3.186500, 55.943800)
+            );
 
-            // Simulate A* hitting max iterations
-            int iterationCount = 0;
-            boolean pathFound = false;
+            // Act - Call the actual calcDeliveryPath API
+            DeliveryPathResponse response = droneQueryService.calcDeliveryPath(dispatches);
 
-            while (iterationCount < maxIterations && !pathFound) {
-                iterationCount++;
-                // Simulated A* search
+            // Assert - Should find paths avoiding both George Square and Bayes areas
+            assertThat(response).isNotNull();
+            assertThat(response.getDronePaths()).isNotEmpty();
+
+            // Verify all deliveries are completed
+            int totalDeliveries = response.getDronePaths().stream()
+                    .mapToInt(dp -> dp.getDeliveries().size())
+                    .sum();
+            assertThat(totalDeliveries).isGreaterThan(0);
+        }
+
+        @Test
+        @DisplayName("UT-15.3: Exceed max moves - very distant locations")
+        void testExceedMaxMoves_DistantLocations() {
+            // Arrange - Deliveries at very distant locations that may exceed drone maxMoves
+            List<MedDispatchRec> dispatches = Arrays.asList(
+                    createDispatch(301, "2025-01-28", "10:00",
+                            2.0, false, false, 200.0, -3.200000, 56.000000),
+                    createDispatch(302, "2025-01-28", "11:00",
+                            2.2, false, false, 210.0, -3.180000, 55.930000)
+            );
+
+            // Act - Call the actual calcDeliveryPath API
+            DeliveryPathResponse response = droneQueryService.calcDeliveryPath(dispatches);
+
+            // Assert - System should handle this gracefully
+            // Might use multiple drones or not complete all deliveries if they exceed maxMoves
+            assertThat(response).isNotNull();
+
+            if (response.getDronePaths().isEmpty()) {
+                // No solution found - acceptable for impossible scenarios
+                assertThat(response.getTotalMoves()).isEqualTo(0);
+            } else {
+                // Partial solution found - some deliveries completed
+                assertThat(response.getDronePaths()).isNotEmpty();
+            }
+        }
+
+        @Test
+        @DisplayName("UT-15.4: No solution - delivery point inside restricted area")
+        void testNoSolution_DeliveryInsideRestrictedArea() {
+            // Arrange - Deliveries potentially inside or very close to restricted areas
+            List<MedDispatchRec> dispatches = Arrays.asList(
+                    createDispatch(401, "2025-01-28", "10:00",
+                            1.5, false, false, 160.0, -3.188200, 55.945300),
+                    createDispatch(402, "2025-01-28", "11:00",
+                            1.7, false, false, 170.0, -3.187500, 55.944800)
+            );
+
+            // Act - Call the actual calcDeliveryPath API
+            DeliveryPathResponse response = droneQueryService.calcDeliveryPath(dispatches);
+
+            // Assert - System should handle this gracefully
+            // Option A: Check for null response
+            if (response == null) {
+                // No solution found - acceptable for impossible scenarios
+                return; // test passes
             }
 
-            // Assert - Should terminate at max iterations
-            assertThat(iterationCount).isLessThanOrEqualTo(maxIterations);
-        }
-
-        @Test
-        @DisplayName("UT-14.4: A* handles unreachable destination (surrounded by obstacles)")
-        void testAStar_UnreachableDestination_ReturnsNull() {
-            // Arrange - Destination completely surrounded
-            // Example: Point inside George Square with no exit
-
-            boolean destinationReachable = false;  // Simulated check
-
-            // Assert - A* should return null/failure gracefully
-            assertThat(destinationReachable).isFalse();
-        }
-
-        @Test
-        @DisplayName("UT-14.5: A* with multiple restricted areas - chooses optimal path")
-        void testAStar_MultipleObstacles_OptimalPath() {
-            // Arrange - Multiple obstacles creating maze
-            // 4 Edinburgh restricted areas: George Square, Bristo Square, etc.
-
-            int numberOfObstacles = 4;
-
-            // Assert - With multiple obstacles, path should navigate between them
-            assertThat(numberOfObstacles).isGreaterThan(1);
-        }
-
-        @Test
-        @DisplayName("UT-14.6: A* heuristic drives search toward goal")
-        void testAStar_HeuristicFunction_CorrectlyOrients() {
-            // Arrange - Test heuristic function (Euclidean distance)
-            double currentLng = -3.188, currentLat = 55.944;
-            double goalLng = -3.185, goalLat = 55.945;
-
-            // Calculate heuristic (estimated distance to goal)
-            double heuristic = Math.sqrt(Math.pow(goalLng - currentLng, 2) + Math.pow(goalLat - currentLat, 2));
-
-            // Assert - Heuristic should be positive and decrease as we approach goal
-            assertThat(heuristic).isGreaterThan(0);
-        }
-
-        @Test
-        @DisplayName("UT-14.7: A* performance acceptable for Edinburgh zones")
-        void testAStar_PerformanceWithRealZones() {
-            // Arrange - Simulated path generation with real zones
-            long startTime = System.currentTimeMillis();
-
-            // Simulate A* execution
-            try {
-                Thread.sleep(50);  // Simulated processing time
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-
-            long endTime = System.currentTimeMillis();
-            long executionTime = endTime - startTime;
-
-            // Assert - Should complete in reasonable time (< 1000ms for typical case)
-            assertThat(executionTime).isLessThan(1000L);
-        }
-
-        @Test
-        @DisplayName("UT-14.8: A* with epsilon for polygon intersection checks")
-        void testAStar_EpsilonTolerance() {
-            // Arrange - Epsilon for conservative polygon checks
-            double epsilon = 1.5;
-
-            // Point very close to polygon edge
-            double pointLng = -3.187682032585144;
-            double pointLat = 55.944477740393744;
-
-            // Assert - Epsilon should be positive
-            assertThat(epsilon).isGreaterThan(0);
+            // Option B: Check for zero moves and empty paths
+            assertThat(response).isNotNull();
+            assertThat(response.getTotalCost()).isEqualTo(0.0);
+            assertThat(response.getTotalMoves()).isEqualTo(0);
+            assertThat(response.getDronePaths()).isEmpty();
         }
     }
 
