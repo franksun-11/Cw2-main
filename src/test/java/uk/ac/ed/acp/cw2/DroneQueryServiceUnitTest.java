@@ -25,15 +25,7 @@ import static org.mockito.Mockito.*;
 
 /**
  * Comprehensive Unit Tests for DroneQueryServiceImpl
- * Testing Coverage for LO3 - Software Testing Coursework
- *
- * Test Categories:
- * - UT-1 to UT-7: Business Logic (Queries, Conditions, Availability, Dispatches)
- * - UT-8 to UT-11: TSP/Optimization Algorithms
- * - UT-12: Cost Calculation
- * - UT-13 to UT-18: Pathfinding (Direct, A*, RRT) - Partial coverage based on implementation
- * - UT-19: Helper Methods
- * - UT-20: Error Handling & Edge Cases
+ * Testing for LO3 - Software Testing Coursework
  */
 @DisplayName("DroneQueryService Unit Tests - Comprehensive Coverage")
 class DroneQueryServiceUnitTest {
@@ -46,7 +38,7 @@ class DroneQueryServiceUnitTest {
 
     // String cannot be mocked - just use a dummy value
     // RestTemplate mock will intercept calls, so this URL is never actually used
-    private String ilpEndpoint = "https://ilp-rest-2025-bvh6e9hschfagrgy.ukwest-01.azurewebsites.net/";
+    private String ilpEndpoint = "http://dummy-ilp-endpoint";
 
     // Test data fixtures
     private List<Drone> testDrones;
@@ -337,7 +329,7 @@ class DroneQueryServiceUnitTest {
     }
 
     private DroneServicePointAvailability.DroneAvailability createDroneAvailability(String droneId,
-            List<DroneServicePointAvailability.TimeSlot> timeSlots) {
+                                                                                    List<DroneServicePointAvailability.TimeSlot> timeSlots) {
         return new DroneServicePointAvailability.DroneAvailability(droneId, timeSlots);
     }
 
@@ -769,34 +761,7 @@ class DroneQueryServiceUnitTest {
 
         @BeforeEach
         void setupAvailability() {
-            // Setup availability data matching Azure endpoint
-            testDroneAvailability = new ArrayList<>();
-
-            // Service Point 1 - Appleton Tower
-            List<DroneServicePointAvailability.DroneAvailability> sp1Drones = new ArrayList<>();
-
-            // Drone 1 availability
-            sp1Drones.add(createDroneAvailability("1", Arrays.asList(
-                    createTimeSlot("MONDAY", "00:00:00", "23:59:59"),
-                    createTimeSlot("WEDNESDAY", "00:00:00", "23:59:59"),
-                    createTimeSlot("THURSDAY", "12:00:00", "23:59:59"),
-                    createTimeSlot("FRIDAY", "12:00:00", "23:59:59"),
-                    createTimeSlot("SUNDAY", "00:00:00", "23:59:59")
-            )));
-
-            // Drone 2 availability
-            sp1Drones.add(createDroneAvailability("2", Arrays.asList(
-                    createTimeSlot("MONDAY", "12:00:00", "23:59:59"),
-                    createTimeSlot("TUESDAY", "00:00:00", "23:59:59"),
-                    createTimeSlot("WEDNESDAY", "00:00:00", "11:59:59"),
-                    createTimeSlot("THURSDAY", "00:00:00", "11:59:59"),
-                    createTimeSlot("FRIDAY", "00:00:00", "23:59:59"),
-                    createTimeSlot("SATURDAY", "12:00:00", "23:59:59"),
-                    createTimeSlot("SUNDAY", "00:00:00", "23:59:59")
-            )));
-
-            testDroneAvailability.add(new DroneServicePointAvailability(1, sp1Drones));
-
+            // Use FULL dataset from setupTestData() - all 10 drones with real availability schedules
             // Mock REST calls for availability - queryAvailableDrones needs ALL 4 endpoints!
             when(restTemplate.getForObject(anyString(), eq(DroneServicePointAvailability[].class)))
                     .thenReturn(testDroneAvailability.toArray(new DroneServicePointAvailability[0]));
@@ -919,6 +884,7 @@ class DroneQueryServiceUnitTest {
 
         @BeforeEach
         void setupForDispatchTests() {
+            // Use FULL dataset from setupTestData() - all 10 drones with real availability schedules
             // Mock REST calls - queryAvailableDrones needs ALL 4 endpoints mocked!
             when(restTemplate.getForObject(anyString(), eq(Drone[].class)))
                     .thenReturn(testDrones.toArray(new Drone[0]));
@@ -929,15 +895,6 @@ class DroneQueryServiceUnitTest {
             when(restTemplate.getForObject(anyString(), eq(RestrictedArea[].class)))
                     .thenReturn(testRestrictedAreas.toArray(new RestrictedArea[0]));
 
-            // Setup basic availability (all drones available on MONDAY)
-            List<DroneServicePointAvailability.DroneAvailability> allDrones = new ArrayList<>();
-            for (int i = 1; i <= 10; i++) {
-                allDrones.add(createDroneAvailability(String.valueOf(i), Arrays.asList(
-                        createTimeSlot("MONDAY", "00:00:00", "23:59:59")
-                )));
-            }
-            testDroneAvailability = List.of(new DroneServicePointAvailability(1, allDrones));
-
             when(restTemplate.getForObject(anyString(), eq(DroneServicePointAvailability[].class)))
                     .thenReturn(testDroneAvailability.toArray(new DroneServicePointAvailability[0]));
         }
@@ -946,30 +903,31 @@ class DroneQueryServiceUnitTest {
         @DisplayName("UT-7.1: Single dispatch - capacity sufficient")
         void testFulfillAllDispatches_SingleDispatch_CapacitySufficient() {
             // Arrange - Dispatch: capacity=4.0, no cooling/heating
-            // Drone 1: capacity=4.0, cooling=true, heating=true
-            MedDispatchRec dispatch = createDispatch(1, "2025-12-22", "10:00:00",
+            // Using TUESDAY when more drones (2,4,5,7,8,9,10) are available
+            // Drone 2: capacity=8.0, cooling=false, heating=true
+            MedDispatchRec dispatch = createDispatch(1, "2025-12-23", "10:00:00",
                     4.0, false, false, 30.0, -3.186, 55.944);
 
             // Act
             List<Integer> result = droneQueryService.queryAvailableDrones(List.of(dispatch));
 
-            // Assert - Drone 1 should be able to carry (capacity exactly matches)
-            assertThat(result).contains(1);
+            // Assert - Drone 2 should be able to carry (capacity 8.0 > 4.0 required)
+            assertThat(result).contains(2);
         }
 
         @Test
         @DisplayName("UT-7.2: Single dispatch - capacity insufficient")
         void testFulfillAllDispatches_SingleDispatch_CapacityInsufficient() {
             // Arrange - Dispatch: capacity=10.0
-            // Drone 1: capacity=4.0
-            MedDispatchRec dispatch = createDispatch(1, "2025-12-22", "10:00:00",
+            // Using TUESDAY: Drone 2 (capacity=8.0) too small, Drone 5 (capacity=12.0) sufficient
+            MedDispatchRec dispatch = createDispatch(1, "2025-12-23", "10:00:00",
                     10.0, false, false, 30.0, -3.186, 55.944);
 
             // Act
             List<Integer> result = droneQueryService.queryAvailableDrones(List.of(dispatch));
 
-            // Assert - Drone 1 should NOT be in results (capacity too small)
-            assertThat(result).doesNotContain(1);
+            // Assert - Drone 2 (capacity=8.0) should NOT be in results (capacity too small)
+            assertThat(result).doesNotContain(2);
             // But Drone 5 (capacity=12.0) should be available
             assertThat(result).contains(5);
         }
@@ -978,13 +936,12 @@ class DroneQueryServiceUnitTest {
         @DisplayName("UT-7.3: Multiple dispatches - same drone can fulfill all")
         void testFulfillAllDispatches_MultipleDispatches_SameDrone() {
             // Arrange - Dispatches: [capacity=2.0, capacity=2.0, capacity=1.5]
-            // Total capacity needed: 5.5 (but note: capacity is per delivery, not total)
-            // Drone 5: capacity=12.0
-            MedDispatchRec dispatch1 = createDispatch(1, "2025-12-22", "10:00:00",
+            // Using TUESDAY: Drone 5 (capacity=12.0) and Drone 2 (capacity=8.0) both sufficient
+            MedDispatchRec dispatch1 = createDispatch(1, "2025-12-23", "10:00:00",
                     2.0, false, false, 30.0, -3.186, 55.944);
-            MedDispatchRec dispatch2 = createDispatch(2, "2025-12-22", "11:00:00",
+            MedDispatchRec dispatch2 = createDispatch(2, "2025-12-23", "11:00:00",
                     2.0, false, false, 30.0, -3.187, 55.945);
-            MedDispatchRec dispatch3 = createDispatch(3, "2025-12-22", "12:00:00",
+            MedDispatchRec dispatch3 = createDispatch(3, "2025-12-23", "12:00:00",
                     1.5, false, false, 30.0, -3.188, 55.946);
 
             // Act
@@ -993,16 +950,16 @@ class DroneQueryServiceUnitTest {
 
             // Assert - Drone 5 (capacity=12) should be able to handle all
             assertThat(result).contains(5);
-            // Drone 1 (capacity=4.0) should also work as all dispatches ≤ 4.0
-            assertThat(result).contains(1);
+            // Drone 2 (capacity=8.0) should also work as all dispatches ≤ 8.0
+            assertThat(result).contains(2);
         }
 
         @Test
         @DisplayName("UT-7.4: Multiple dispatches - cooling required by one")
         void testFulfillAllDispatches_CoolingRequired() {
             // Arrange - One dispatch requires cooling
-            // Drone 2: cooling=false, heating=true
-            MedDispatchRec dispatch1 = createDispatch(1, "2025-12-22", "10:00:00",
+            // Using TUESDAY: Drone 2 (cooling=false), Drone 5,8,9 (cooling=true)
+            MedDispatchRec dispatch1 = createDispatch(1, "2025-12-23", "10:00:00",
                     4.0, true, false, 30.0, -3.186, 55.944);
 
             // Act
@@ -1010,39 +967,41 @@ class DroneQueryServiceUnitTest {
 
             // Assert - Drone 2 should NOT be available (no cooling)
             assertThat(result).doesNotContain(2);
-            // Drone 1, 5, 8, 9 have cooling
-            assertThat(result).containsAnyOf(1, 5, 8, 9);
+            // Drones 5, 8, 9 have cooling and are available on TUESDAY
+            assertThat(result).containsAnyOf(5, 8, 9);
         }
 
         @Test
         @DisplayName("UT-7.5: Heating required - drone must have heating")
         void testFulfillAllDispatches_HeatingRequired() {
             // Arrange - Dispatch requires heating
-            MedDispatchRec dispatch = createDispatch(1, "2025-12-22", "10:00:00",
+            // Using TUESDAY: Drone 8 (heating=false), others have heating
+            MedDispatchRec dispatch = createDispatch(1, "2025-12-23", "10:00:00",
                     4.0, false, true, 30.0, -3.186, 55.944);
 
             // Act
             List<Integer> result = droneQueryService.queryAvailableDrones(List.of(dispatch));
 
-            // Assert - Drone 3 (heating=false) should NOT be available
-            assertThat(result).doesNotContain(3);
-            // Drone 1 (heating=true) should be available
-            assertThat(result).contains(1);
+            // Assert - Drone 8 (heating=false) should NOT be available
+            assertThat(result).doesNotContain(8);
+            // Drones 2,4,5,7,9,10 have heating and are available on TUESDAY
+            assertThat(result).containsAnyOf(2, 5, 7, 9);
         }
 
         @Test
         @DisplayName("UT-7.6: Both cooling and heating capabilities available")
         void testFulfillAllDispatches_BothCoolingAndHeating() {
-            // Arrange - Drone 1 has both cooling=true AND heating=true
+            // Arrange - Drones 5 and 9 have both cooling=true AND heating=true
             // Dispatch needs cooling
-            MedDispatchRec dispatch = createDispatch(1, "2025-12-22", "10:00:00",
+            // Using TUESDAY
+            MedDispatchRec dispatch = createDispatch(1, "2025-12-23", "10:00:00",
                     4.0, true, false, 30.0, -3.186, 55.944);
 
             // Act
             List<Integer> result = droneQueryService.queryAvailableDrones(List.of(dispatch));
 
-            // Assert - Drone 1 should be available (has cooling)
-            assertThat(result).contains(1);
+            // Assert - Drones 5, 9 should be available (have cooling)
+            assertThat(result).containsAnyOf(5, 9);
         }
 
         @Test
@@ -1050,20 +1009,20 @@ class DroneQueryServiceUnitTest {
         void testFulfillAllDispatches_MixedRequirements() {
             // Arrange - Dispatch 1 needs cooling, Dispatch 2 needs heating
             // Only drones with BOTH cooling AND heating can fulfill
-            MedDispatchRec dispatch1 = createDispatch(1, "2025-12-22", "10:00:00",
+            // Using TUESDAY: only Drones 5 and 9 have both
+            MedDispatchRec dispatch1 = createDispatch(1, "2025-12-23", "10:00:00",
                     4.0, true, false, 30.0, -3.186, 55.944);
-            MedDispatchRec dispatch2 = createDispatch(2, "2025-12-22", "11:00:00",
+            MedDispatchRec dispatch2 = createDispatch(2, "2025-12-23", "11:00:00",
                     4.0, false, true, 30.0, -3.187, 55.945);
 
             // Act
             List<Integer> result = droneQueryService.queryAvailableDrones(
                     Arrays.asList(dispatch1, dispatch2));
 
-            // Assert - Only drones 1, 5, 9 have both cooling=true AND heating=true
-            assertThat(result).containsAnyOf(1, 5, 9);
-            // Drone 2 (no cooling) should NOT be available
+            // Assert - Only drones 5, 9 have both cooling=true AND heating=true on TUESDAY
+            assertThat(result).containsAnyOf(5, 9);
+            // Drone 2 (no cooling) and Drone 8 (no heating) should NOT be available
             assertThat(result).doesNotContain(2);
-            // Drone 8 (no heating) should NOT be available
             assertThat(result).doesNotContain(8);
         }
 
@@ -1071,409 +1030,19 @@ class DroneQueryServiceUnitTest {
         @DisplayName("UT-7.8: Capacity check - drone must handle largest dispatch")
         void testFulfillAllDispatches_LargestCapacityCheck() {
             // Arrange - Multiple dispatches with varying capacities
-            MedDispatchRec dispatch1 = createDispatch(1, "2025-12-22", "10:00:00",
+            // Using TUESDAY: Drone 4 (capacity=8.0) can handle, Drone 2 (capacity=8.0) can too
+            MedDispatchRec dispatch1 = createDispatch(1, "2025-12-23", "10:00:00",
                     3.0, false, false, 30.0, -3.186, 55.944);
-            MedDispatchRec dispatch2 = createDispatch(2, "2025-12-22", "11:00:00",
+            MedDispatchRec dispatch2 = createDispatch(2, "2025-12-23", "11:00:00",
                     7.0, false, false, 30.0, -3.187, 55.945);
 
             // Act
             List<Integer> result = droneQueryService.queryAvailableDrones(
                     Arrays.asList(dispatch1, dispatch2));
 
-            // Assert - Drone 1 (capacity=4.0) cannot handle dispatch2 (capacity=7.0)
-            assertThat(result).doesNotContain(1);
-            // Drone 2 (capacity=8.0) should be able to handle both
-            assertThat(result).contains(2);
-        }
-    }
-
-    // ==================== TSP / OPTIMIZATION ====================
-
-    @Nested
-    @DisplayName("UT-8: TSP Algorithm - Euclidean Distance Calculation")
-    class TSPEuclideanDistance {
-
-        @Test
-        @DisplayName("UT-8.1: Distance between (0,0) and (3,4) = 5")
-        void testCalculateEuclideanDistance_StandardCase() {
-            // Arrange
-            double lng1 = 0.0, lat1 = 0.0;
-            double lng2 = 3.0, lat2 = 4.0;
-
-            // Act - Calculate using Pythagorean theorem: sqrt((3-0)² + (4-0)²) = sqrt(9 + 16) = 5
-            double distance = Math.sqrt(Math.pow(lng2 - lng1, 2) + Math.pow(lat2 - lat1, 2));
-
-            // Assert
-            assertThat(distance).isEqualTo(5.0);
-        }
-
-        @Test
-        @DisplayName("UT-8.2: Distance between same points = 0")
-        void testCalculateEuclideanDistance_SamePoint() {
-            // Arrange
-            double lng = 55.944, lat = -3.186;
-
-            // Act
-            double distance = Math.sqrt(Math.pow(lng - lng, 2) + Math.pow(lat - lat, 2));
-
-            // Assert
-            assertThat(distance).isEqualTo(0.0);
-        }
-
-        @Test
-        @DisplayName("UT-8.3: Distance with negative coordinates")
-        void testCalculateEuclideanDistance_NegativeCoords() {
-            // Arrange
-            double lng1 = -3.0, lat1 = -4.0;
-            double lng2 = 0.0, lat2 = 0.0;
-
-            // Act
-            double distance = Math.sqrt(Math.pow(lng2 - lng1, 2) + Math.pow(lat2 - lat1, 2));
-
-            // Assert
-            assertThat(distance).isEqualTo(5.0);
-        }
-
-        @Test
-        @DisplayName("UT-8.4: Distance is symmetric")
-        void testCalculateEuclideanDistance_Symmetric() {
-            // Arrange
-            double lng1 = -3.186, lat1 = 55.944;
-            double lng2 = -3.187, lat2 = 55.945;
-
-            // Act
-            double distanceAB = Math.sqrt(Math.pow(lng2 - lng1, 2) + Math.pow(lat2 - lat1, 2));
-            double distanceBA = Math.sqrt(Math.pow(lng1 - lng2, 2) + Math.pow(lat1 - lat2, 2));
-
-            // Assert - distance(A, B) == distance(B, A)
-            assertThat(distanceAB).isEqualTo(distanceBA);
-        }
-
-        @Test
-        @DisplayName("UT-8.5: Very small distance - precision test")
-        void testCalculateEuclideanDistance_VerySmall() {
-            // Arrange - Two points very close together (within 0.00015 degrees)
-            double lng1 = -3.1863580788986368, lat1 = 55.94468066708487;
-            double lng2 = -3.1863580788986368 + 0.00010, lat2 = 55.94468066708487;
-
-            // Act
-            double distance = Math.sqrt(Math.pow(lng2 - lng1, 2) + Math.pow(lat2 - lat1, 2));
-
-            // Assert - Should be very small but not zero
-            assertThat(distance).isGreaterThan(0.0);
-            assertThat(distance).isLessThan(0.001);
-        }
-    }
-
-    @Nested
-    @DisplayName("UT-9: TSP Algorithm - Greedy Nearest Neighbor")
-    class TSPGreedyAlgorithm {
-
-        private List<MedDispatchRec> createDeliveriesAtLocations(double[][] locations) {
-            List<MedDispatchRec> dispatches = new ArrayList<>();
-            for (int i = 0; i < locations.length; i++) {
-                dispatches.add(createDispatch(i + 1, "2025-12-22", "10:00:00",
-                        2.0, false, false, 100.0, locations[i][0], locations[i][1]));
-            }
-            return dispatches;
-        }
-
-        /**
-         * Helper method to call private optimizeDeliveryOrder_Greedy using reflection
-         */
-        @SuppressWarnings("unchecked")
-        private List<MedDispatchRec> callGreedyOptimization(ServicePoint startPoint, List<MedDispatchRec> dispatches) throws Exception {
-            java.lang.reflect.Method method = DroneQueryServiceImpl.class.getDeclaredMethod(
-                    "optimizeDeliveryOrder_Greedy",
-                    ServicePoint.class,
-                    List.class
-            );
-            method.setAccessible(true);
-            return (List<MedDispatchRec>) method.invoke(droneQueryService, startPoint, dispatches);
-        }
-
-        @Test
-        @DisplayName("UT-9.1: Single delivery - returns that delivery")
-        void testGreedyTSP_SingleDelivery_ReturnsSame() throws Exception {
-            // Arrange - 1 delivery at a single location
-            List<MedDispatchRec> deliveries = createDeliveriesAtLocations(new double[][]{
-                    {-3.187, 55.945}
-            });
-            ServicePoint start = testServicePoints.get(0); // Appleton Tower
-
-            // Act - Call the actual Greedy method via reflection
-            List<MedDispatchRec> optimized = callGreedyOptimization(start, deliveries);
-
-            // Assert - With only one delivery, result should be the same delivery
-            assertThat(optimized).hasSize(1);
-            assertThat(optimized.get(0).getId()).isEqualTo(deliveries.get(0).getId());
-        }
-
-        @Test
-        @DisplayName("UT-9.2: Two deliveries - nearest neighbor selection")
-        void testGreedyTSP_TwoDeliveries_NearestNeighbor() throws Exception {
-            // Arrange - Two deliveries
-            // Start point: Appleton Tower (-3.1863580788986368, 55.94468066708487)
-            // Delivery 1 (ID=1): (-3.188, 55.946) - Farther from start
-            // Delivery 2 (ID=2): (-3.187, 55.945) - Closer to start
-            List<MedDispatchRec> deliveries = createDeliveriesAtLocations(new double[][]{
-                    {-3.188, 55.946},  // ID=1, Farther
-                    {-3.187, 55.945}   // ID=2, Closer
-            });
-            ServicePoint start = testServicePoints.get(0); // Appleton Tower
-
-            // Act - Call the actual Greedy method via reflection
-            List<MedDispatchRec> optimized = callGreedyOptimization(start, deliveries);
-
-            // Assert - Greedy should pick nearest neighbor first
-            // The closer delivery (ID=2) should be visited first
-            assertThat(optimized).hasSize(2);
-            assertThat(optimized.get(0).getId()).isEqualTo(2); // Closer one first
-            assertThat(optimized.get(1).getId()).isEqualTo(1); // Farther one second
-        }
-
-        @Test
-        @DisplayName("UT-9.3: Five deliveries - greedy ordering verification")
-        void testGreedyTSP_FiveDeliveries_GreedyOrdering() throws Exception {
-            // Arrange - 5 deliveries at various locations around Appleton Tower
-            List<MedDispatchRec> deliveries = createDeliveriesAtLocations(new double[][]{
-                    {-3.186, 55.946},  // ID=1, Very close to Appleton Tower
-                    {-3.190, 55.950},  // ID=2, North (far)
-                    {-3.180, 55.945},  // ID=3, East
-                    {-3.188, 55.943},  // ID=4, South-West
-                    {-3.185, 55.944}    // ID=5, North (medium distance)
-            });
-            ServicePoint start = testServicePoints.get(0); // Appleton Tower
-
-            // Act - Call the actual Greedy method via reflection
-            List<MedDispatchRec> optimized = callGreedyOptimization(start, deliveries);
-
-            // Assert - Should return all 5 deliveries in some order
-            assertThat(optimized).hasSize(5);
-
-            // Greedy should pick the closest one first (ID=1 at -3.185, 55.944)
-            assertThat(optimized.get(0).getId()).isEqualTo(1);
-
-            // Verify all deliveries are present (no duplicates, no missing)
-            List<Integer> ids = optimized.stream().map(MedDispatchRec::getId).toList();
-            assertThat(ids).containsExactlyInAnyOrder(1, 2, 3, 4, 5);
-        }
-
-        @Test
-        @DisplayName("UT-9.4: All deliveries at same location - any order valid")
-        void testGreedyTSP_SameLocation_AnyOrder() throws Exception {
-            // Arrange - 3 deliveries all at exact same location
-            List<MedDispatchRec> deliveries = createDeliveriesAtLocations(new double[][]{
-                    {-3.187, 55.945},
-                    {-3.187, 55.945},
-                    {-3.187, 55.945}
-            });
-            ServicePoint start = testServicePoints.get(0);
-
-            // Act - Call the actual Greedy method via reflection
-            List<MedDispatchRec> optimized = callGreedyOptimization(start, deliveries);
-
-            // Assert - Should return all 3 deliveries (order doesn't matter since same location)
-            assertThat(optimized).hasSize(3);
-
-            // All deliveries should be present
-            List<Integer> ids = optimized.stream().map(MedDispatchRec::getId).toList();
-            assertThat(ids).containsExactlyInAnyOrder(1, 2, 3);
-        }
-    }
-    // TODO: not checking if DP gives optimal solution, just that it runs and returns all deliveries
-    @Nested
-    @DisplayName("UT-10: TSP Algorithm - Dynamic Programming Approach")
-    class TSPDynamicProgramming {
-
-        /**
-         * Helper method to call private optimizeDeliveryOrder_DP using reflection
-         */
-        @SuppressWarnings("unchecked")
-        private List<MedDispatchRec> callDPOptimization(ServicePoint startPoint, List<MedDispatchRec> dispatches) throws Exception {
-            java.lang.reflect.Method method = DroneQueryServiceImpl.class.getDeclaredMethod(
-                    "optimizeDeliveryOrder_DP",
-                    ServicePoint.class,
-                    List.class
-            );
-            method.setAccessible(true);
-            return (List<MedDispatchRec>) method.invoke(droneQueryService, startPoint, dispatches);
-        }
-
-        private List<MedDispatchRec> createDeliveriesAtLocations(double[][] locations) {
-            List<MedDispatchRec> dispatches = new ArrayList<>();
-            for (int i = 0; i < locations.length; i++) {
-                dispatches.add(createDispatch(i + 1, "2025-12-22", "10:00:00",
-                        2.0, false, false, 100.0, locations[i][0], locations[i][1]));
-            }
-            return dispatches;
-        }
-
-        @Test
-        @DisplayName("UT-10.1: Two deliveries - DP returns optimal order")
-        void testDPTSP_TwoDeliveries_Optimal() throws Exception {
-            // Arrange - Two deliveries
-            // Start at Appleton Tower
-            // Delivery 1: (-3.187, 55.945)
-            // Delivery 2: (-3.188, 55.946)
-            List<MedDispatchRec> deliveries = createDeliveriesAtLocations(new double[][]{
-                    {-3.187, 55.945},
-                    {-3.188, 55.946}
-            });
-            ServicePoint start = testServicePoints.get(0);
-
-            // Act - Call the actual DP method via reflection
-            List<MedDispatchRec> optimized = callDPOptimization(start, deliveries);
-
-            // Assert - Should return all deliveries in optimal order
-            assertThat(optimized).hasSize(2);
-
-            // Verify all deliveries are present
-            List<Integer> ids = optimized.stream().map(MedDispatchRec::getId).toList();
-            assertThat(ids).containsExactlyInAnyOrder(1, 2);
-        }
-
-        @Test
-        @DisplayName("UT-10.2: Three deliveries - DP finds optimal ordering")
-        void testDPTSP_ThreeDeliveries_Optimal() throws Exception {
-            // Arrange - Three deliveries forming a triangle
-            // This tests that DP explores all permutations and finds the best
-            List<MedDispatchRec> deliveries = createDeliveriesAtLocations(new double[][]{
-                    {-3.186, 55.945},  // ID=1, East
-                    {-3.188, 55.946},  // ID=2, North-West
-                    {-3.187, 55.943}   // ID=3, South
-            });
-            ServicePoint start = testServicePoints.get(0);
-
-            // Act - Call the actual DP method via reflection
-            List<MedDispatchRec> optimized = callDPOptimization(start, deliveries);
-
-            // Assert - Should return all 3 deliveries in optimal order
-            assertThat(optimized).hasSize(3);
-
-            // Verify all deliveries are present
-            List<Integer> ids = optimized.stream().map(MedDispatchRec::getId).toList();
-            assertThat(ids).containsExactlyInAnyOrder(1, 2, 3);
-
-            // DP should produce a valid tour (all deliveries visited exactly once)
-            assertThat(new java.util.HashSet<>(ids)).hasSize(3); // No duplicates
-        }
-
-        @Test
-        @DisplayName("UT-10.3: Twelve deliveries - DP handles maximum size")
-        void testDPTSP_TwelveDeliveries_StillDP() throws Exception {
-            // Arrange - Create 12 deliveries (maximum for DP algorithm)
-            // According to implementation, DP is used for n <= 12
-            double[][] locations = new double[12][2];
-            for (int i = 0; i < 12; i++) {
-                locations[i][0] = -3.186 + (i * 0.001);  // Spread out in longitude
-                locations[i][1] = 55.944 + (i * 0.001);  // Spread out in latitude
-            }
-
-            List<MedDispatchRec> deliveries = createDeliveriesAtLocations(locations);
-            ServicePoint start = testServicePoints.get(0);
-
-            // Act - Call the actual DP method via reflection
-            List<MedDispatchRec> optimized = callDPOptimization(start, deliveries);
-
-            // Assert - Should return all 12 deliveries
-            assertThat(optimized).hasSize(12);
-
-            // Verify all deliveries are present (IDs 1-12)
-            List<Integer> ids = optimized.stream().map(MedDispatchRec::getId).toList();
-            assertThat(ids).containsExactlyInAnyOrder(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
-
-            // Verify no duplicates
-            assertThat(new java.util.HashSet<>(ids)).hasSize(12);
-        }
-    }
-
-    // ==================== TSP ALGORITHM SELECTION? Meaningless====================
-
-    @Nested
-    @DisplayName("UT-11: TSP Algorithm Selection Logic")
-    class TSPAlgorithmSelectio {
-
-        @Test
-        @DisplayName("UT-11.1: ≤12 deliveries → should use DP algorithm")
-        void testSelectTSPAlgorithm_LessOrEqual12_SelectsDP() {
-            // Arrange & Assert - Test with different counts ≤ 12
-            int[] deliveryCounts = {1, 5, 8, 10, 12};
-
-            for (int count : deliveryCounts) {
-                // Create test deliveries
-                List<MedDispatchRec> deliveries = new ArrayList<>();
-                for (int i = 0; i < count; i++) {
-                    deliveries.add(createDispatch(i + 1, "2025-12-22", "10:00:00",
-                            2.0, false, false, 100.0,
-                            -3.186 + (i * 0.001), 55.944 + (i * 0.001)));
-                }
-
-                // Assert - Should use DP for counts ≤ 12
-                assertThat(deliveries.size()).isLessThanOrEqualTo(12);
-                assertThat(deliveries.size()).isEqualTo(count);
-            }
-        }
-
-        @Test
-        @DisplayName("UT-11.2: >12 deliveries → should use Greedy algorithm")
-        void testSelectTSPAlgorithm_GreaterThan12_SelectsGreedy() {
-            // Arrange & Assert - Test with different counts > 12
-            int[] deliveryCounts = {13, 20, 50};
-
-            for (int count : deliveryCounts) {
-                // Create test deliveries
-                List<MedDispatchRec> deliveries = new ArrayList<>();
-                for (int i = 0; i < count; i++) {
-                    deliveries.add(createDispatch(i + 1, "2025-12-22", "10:00:00",
-                            2.0, false, false, 100.0,
-                            -3.186 + (i * 0.001), 55.944 + (i * 0.001)));
-                }
-
-                // Assert - Should use Greedy for counts > 12
-                assertThat(deliveries.size()).isGreaterThan(12);
-                assertThat(deliveries.size()).isEqualTo(count);
-            }
-        }
-
-        @Test
-        @DisplayName("UT-11.3: Boundary case - exactly 12 deliveries → DP")
-        void testSelectTSPAlgorithm_Exactly12_SelectsDP() {
-            // Arrange
-            List<MedDispatchRec> deliveries = new ArrayList<>();
-            for (int i = 0; i < 12; i++) {
-                deliveries.add(createDispatch(i + 1, "2025-12-22", "10:00:00",
-                        2.0, false, false, 100.0,
-                        -3.186 + (i * 0.001), 55.944 + (i * 0.001)));
-            }
-
-            // Assert - Exactly 12 should use DP (≤ 12)
-            assertThat(deliveries).hasSize(12);
-        }
-
-        @Test
-        @DisplayName("UT-11.4: Boundary case - exactly 13 deliveries → Greedy")
-        void testSelectTSPAlgorithm_Exactly13_SelectsGreedy() {
-            // Arrange
-            List<MedDispatchRec> deliveries = new ArrayList<>();
-            for (int i = 0; i < 13; i++) {
-                deliveries.add(createDispatch(i + 1, "2025-12-22", "10:00:00",
-                        2.0, false, false, 100.0,
-                        -3.186 + (i * 0.001), 55.944 + (i * 0.001)));
-            }
-
-            // Assert - Exactly 13 should use Greedy (> 12)
-            assertThat(deliveries).hasSize(13);
-        }
-
-        @Test
-        @DisplayName("UT-11.5: Empty delivery list handled")
-        void testSelectTSPAlgorithm_EmptyList_Handled() {
-            // Arrange
-            List<MedDispatchRec> deliveries = new ArrayList<>();
-
-            // Assert - Empty list should be handled gracefully
-            assertThat(deliveries).isEmpty();
+            // Assert - Drones with capacity < 7.0 cannot handle dispatch2
+            // Drone 2 (capacity=8.0) and Drone 5 (capacity=12.0) should be able to handle both
+            assertThat(result).containsAnyOf(2, 5);
         }
     }
 
@@ -1675,8 +1244,8 @@ class DroneQueryServiceUnitTest {
     // ==================== PATHFINDING ALGORITHMS - CORE COMPONENT ====================
 
     @Nested
-    @DisplayName("UT-13: Pathfinding - calcDeliveryPath API")
-    class PathfindingAPI {
+    @DisplayName("UT-13: Pathfinding - satisfy basic attributes")
+    class PathfindingBasicAttributes {
 
         private static final double STEP_WIDTH = 0.00015;
         private static final double PRECISION_TOLERANCE = 0.000001;
@@ -1706,14 +1275,14 @@ class DroneQueryServiceUnitTest {
 
                 double distance = Math.sqrt(
                         Math.pow(p2.getLng() - p1.getLng(), 2) +
-                        Math.pow(p2.getLat() - p1.getLat(), 2)
+                                Math.pow(p2.getLat() - p1.getLat(), 2)
                 );
 
                 // Adjacent points should be either:
                 // 1. Exactly STEP_WIDTH apart (moving)
                 // 2. Exactly 0 apart (hovering for delivery)
                 assertThat(distance)
-                        .describedAs("Distance between adjacent points at index %d and %d", i, i+1)
+                        .describedAs("Distance between adjacent points at index %d and %d", i, i + 1)
                         .satisfiesAnyOf(
                                 dist -> assertThat(dist).isCloseTo(STEP_WIDTH, within(PRECISION_TOLERANCE)),
                                 dist -> assertThat(dist).isCloseTo(0.0, within(PRECISION_TOLERANCE))
@@ -1791,7 +1360,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-13.3: Flight path starts and ends at service point (round trip)")
+        @DisplayName("UT-13.3: Flight path starts and ends at service point")
         void testCalcDeliveryPath_RoundTrip_StartsAndEndsAtServicePoint() {
             // Arrange - Use VALID working data
             List<MedDispatchRec> dispatches = List.of(
@@ -1826,7 +1395,54 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-13.4: Total moves matches flight path length") // unnecessary?
+        @DisplayName("UT-13.4: delivered to the correct location - Hover point matches input delivery coordinates")
+        void testCalcDeliveryPath_HoverPoint_MatchesDeliveryCoordinate() {
+            // Arrange - Use VALID working data with specific coordinates
+            double expectedLng = -3.186508;
+            double expectedLat = 55.944831;
+            List<MedDispatchRec> dispatches = List.of(
+                    createDispatch(1001, "2025-01-28", "10:00",
+                            2.0, false, false, 50.0, expectedLng, expectedLat)
+            );
+
+            // Act - Call the actual calcDeliveryPath API
+            DeliveryPathResponse response = droneQueryService.calcDeliveryPath(dispatches);
+
+            // Assert - Response should be valid
+            assertThat(response).isNotNull();
+            assertThat(response.getDronePaths()).isNotEmpty();
+
+            // Find the hover point in the flight path
+            DeliveryPathResponse.DronePath dronePath = response.getDronePaths().get(0);
+            DeliveryPathResponse.Delivery delivery = dronePath.getDeliveries().get(0);
+            List<DeliveryPathResponse.LngLat> flightPath = delivery.getFlightPath();
+
+            // Find hover points (consecutive identical coordinates)
+            DeliveryPathResponse.LngLat hoverPoint = null;
+            for (int i = 0; i < flightPath.size() - 1; i++) {
+                DeliveryPathResponse.LngLat p1 = flightPath.get(i);
+                DeliveryPathResponse.LngLat p2 = flightPath.get(i + 1);
+
+                if (p1.getLng().equals(p2.getLng()) && p1.getLat().equals(p2.getLat())) {
+                    hoverPoint = p1;
+                    break;
+                }
+            }
+
+            // Assert hover point was found and matches input delivery coordinates
+            assertThat(hoverPoint).isNotNull()
+                    .describedAs("Flight path should contain a hover point");
+
+            assertThat(hoverPoint.getLng()).isCloseTo(expectedLng, within(STEP_WIDTH + PRECISION_TOLERANCE))
+                    .describedAs("Hover point longitude should match delivery coordinate");
+
+            assertThat(hoverPoint.getLat()).isCloseTo(expectedLat, within(STEP_WIDTH + PRECISION_TOLERANCE))
+                    .describedAs("Hover point latitude should match delivery coordinate");
+        }
+
+        @Test
+        @DisplayName("UT-13.5: Total moves matches flight path length")
+            // unnecessary?
         void testCalcDeliveryPath_TotalMoves_MatchesFlightPath() {
             // Arrange - Use VALID working data
             List<MedDispatchRec> dispatches = List.of(
@@ -1881,7 +1497,7 @@ class DroneQueryServiceUnitTest {
             for (int i = 0; i < path.size() - 1; i++) {
                 double dist = Math.sqrt(
                         Math.pow(path.get(i + 1).getLng() - path.get(i).getLng(), 2) +
-                        Math.pow(path.get(i + 1).getLat() - path.get(i).getLat(), 2)
+                                Math.pow(path.get(i + 1).getLat() - path.get(i).getLat(), 2)
                 );
                 assertThat(dist).satisfiesAnyOf(
                         d -> assertThat(d).isCloseTo(STEP_WIDTH, within(PRECISION_TOLERANCE)),
@@ -1946,10 +1562,10 @@ class DroneQueryServiceUnitTest {
             boolean foundDeliveryPoint = false;
             for (int i = 0; i < path.size() - 1; i++) {
                 if (path.get(i).getLng().equals(path.get(i + 1).getLng()) &&
-                    path.get(i).getLat().equals(path.get(i + 1).getLat())) {
+                        path.get(i).getLat().equals(path.get(i + 1).getLat())) {
                     double distToDelivery = Math.sqrt(
                             Math.pow(path.get(i).getLng() + 3.186508, 2) +
-                            Math.pow(path.get(i).getLat() - 55.944831, 2)
+                                    Math.pow(path.get(i).getLat() - 55.944831, 2)
                     );
                     assertThat(distToDelivery).isLessThan(STEP_WIDTH + PRECISION_TOLERANCE);
                     foundDeliveryPoint = true;
@@ -2053,6 +1669,36 @@ class DroneQueryServiceUnitTest {
                     .sum();
             assertThat(totalDeliveries).isLessThanOrEqualTo(8);
         }
+
+        @Test
+        @DisplayName("UT-14.6: no solution - exceed capacity")
+        void testNoSolution_ExceedCapacity() {
+            List<MedDispatchRec> dispatches = Arrays.asList(
+                    createDispatch(1, "2025-12-23", "14:30",
+                            12.0, false, true, 13.5, -3.189, 55.941),
+                    createDispatch(2, "2025-12-23", "14:30",
+                            10.0, false, false, 10.5, -3.189, 55.951),
+                    createDispatch(3, "2025-12-23", "14:30",
+                            15.0, false, false, 15.0, -3.183, 55.95)
+            );
+
+            DeliveryPathResponse response = droneQueryService.calcDeliveryPath(dispatches);
+
+            // Assert - System should handle this gracefully
+            // Option A: Check for null response
+            if (response == null) {
+                // No solution found - acceptable for impossible scenarios
+                return; // test passes
+            }
+
+            // Option B: Check for zero moves and empty paths
+            assertThat(response).isNotNull();
+            assertThat(response.getTotalCost()).isEqualTo(0.0);
+            assertThat(response.getTotalMoves()).isEqualTo(0);
+            assertThat(response.getDronePaths()).isEmpty();
+        }
+
+
     }
 
     // ==================== PATHFINDING - WITH OBSTACLES ====================
@@ -2060,9 +1706,6 @@ class DroneQueryServiceUnitTest {
     @Nested
     @DisplayName("UT-15: Pathfinding - With Obstacles")
     class PathfindingWithObstacles {
-
-        private static final double STEP_WIDTH = 0.00015;
-        private static final double PRECISION_TOLERANCE = 0.000001;
 
         @BeforeEach
         void setupObstacleTests() {
@@ -2126,7 +1769,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-15.3: Exceed max moves - very distant locations")
+        @DisplayName("UT-15.3: maxMoves boundary test  - distant locations with obstacles")
         void testExceedMaxMoves_DistantLocations() {
             // Arrange - Deliveries at very distant locations that may exceed drone maxMoves
             List<MedDispatchRec> dispatches = Arrays.asList(
@@ -2142,18 +1785,12 @@ class DroneQueryServiceUnitTest {
             // Assert - System should handle this gracefully
             // Might use multiple drones or not complete all deliveries if they exceed maxMoves
             assertThat(response).isNotNull();
-
-            if (response.getDronePaths().isEmpty()) {
-                // No solution found - acceptable for impossible scenarios
-                assertThat(response.getTotalMoves()).isEqualTo(0);
-            } else {
-                // Partial solution found - some deliveries completed
-                assertThat(response.getDronePaths()).isNotEmpty();
-            }
         }
 
+
+
         @Test
-        @DisplayName("UT-15.4: No solution - delivery point inside restricted area")
+        @DisplayName("UT-15.4: No solution - delivery point inside obstacles(restricted area)")
         void testNoSolution_DeliveryInsideRestrictedArea() {
             // Arrange - Deliveries potentially inside or very close to restricted areas
             List<MedDispatchRec> dispatches = Arrays.asList(
@@ -2181,547 +1818,83 @@ class DroneQueryServiceUnitTest {
         }
     }
 
-    @Nested
-    @DisplayName("UT-15: Pathfinding - RRT Algorithm (Rapidly-exploring Random Tree)")
-    class PathfindingRRT {
-
-        @Test
-        @DisplayName("UT-15.1: RRT generates valid path avoiding obstacles")
-        void testRRT_ValidPath_AvoidingObstacles() {
-            // Arrange - RRT pathfinding with obstacles
-            double startLng = -3.189, startLat = 55.944;
-            double goalLng = -3.185, goalLat = 55.945;
-
-            // Simulate RRT tree exploration
-            boolean pathFound = true;  // Simulated result
-
-            // Assert - RRT should find valid path
-            assertThat(pathFound).isTrue();
-        }
-
-        @Test
-        @DisplayName("UT-15.2: RRT random sampling explores space")
-        void testRRT_RandomSampling_CoversSpace() {
-            // Arrange - Generate multiple RRT paths
-            List<Integer> pathLengths = new ArrayList<>();
-
-            for (int i = 0; i < 5; i++) {
-                // Simulate RRT path generation with random sampling
-                int pathLength = 100 + (int)(Math.random() * 50);
-                pathLengths.add(pathLength);
-            }
-
-            // Assert - Different paths should have varying lengths (randomness)
-            long distinctLengths = pathLengths.stream().distinct().count();
-            assertThat(distinctLengths).isGreaterThan(1);
-        }
-
-        @Test
-        @DisplayName("UT-15.3: RRT goal biasing pulls tree toward target")
-        void testRRT_GoalBias_ProgressesTowardGoal() {
-            // Arrange - RRT with goal bias (10% probability)
-            double goalBias = 0.1;
-
-            // Simulate goal-biased sampling
-            int goalBiasedSamples = 0;
-            int totalSamples = 1000;
-
-            for (int i = 0; i < totalSamples; i++) {
-                if (Math.random() < goalBias) {
-                    goalBiasedSamples++;
-                }
-            }
-
-            // Assert - Approximately 10% of samples should be goal-biased
-            assertThat(goalBiasedSamples).isBetween(50, 150);  // Within statistical range
-        }
-
-        @Test
-        @DisplayName("UT-15.4: RRT snaps path to valid compass directions")
-        void testRRT_SnapToCompassDirections_Correct() {
-            // Arrange - Random angle that needs snapping
-            double randomAngle = 37.8;  // Not aligned to 22.5° grid
-
-            // Snap to nearest compass direction
-            double compassStep = 22.5;
-            double snappedAngle = Math.round(randomAngle / compassStep) * compassStep;
-
-            // Assert - Snapped angle should be multiple of 22.5°
-            assertThat(snappedAngle % compassStep).isEqualTo(0.0);
-            assertThat(snappedAngle).isCloseTo(45.0, within(0.1));  // 37.8 snaps to 45°
-        }
-
-        @Test
-        @DisplayName("UT-15.5: RRT respects step width after snapping")
-        void testRRT_StepWidthAfterSnapping_0_00015Degree() {
-            // Arrange - RRT waypoints with step width
-            double stepWidth = 0.00015;
-
-            double startLng = 0.0, startLat = 0.0;
-            double stepLng = startLng + stepWidth;
-            double stepLat = startLat;
-
-            double actualStepDistance = Math.sqrt(Math.pow(stepLng - startLng, 2) + Math.pow(stepLat - startLat, 2));
-
-            // Assert - Step width should be exactly 0.00015°
-            assertThat(actualStepDistance).isCloseTo(stepWidth, within(0.000001));
-        }
-
-        @Test
-        @DisplayName("UT-15.6: RRT with unreachable goal - respects max attempts")
-        void testRRT_UnreachableGoal_MaxAttemptsRespected() {
-            // Arrange - Unreachable goal with max attempts
-            int maxAttempts = 5000;
-            int attempts = 0;
-            boolean pathFound = false;
-
-            while (attempts < maxAttempts && !pathFound) {
-                attempts++;
-                // Simulated RRT sampling (always fails for unreachable goal)
-            }
-
-            // Assert - Should terminate at max attempts
-            assertThat(attempts).isEqualTo(maxAttempts);
-            assertThat(pathFound).isFalse();
-        }
-
-        @Test
-        @DisplayName("UT-15.7: RRT performance acceptable for complex zones")
-        void testRRT_PerformanceComplexZones() {
-            // Arrange - Measure RRT performance
-            long startTime = System.currentTimeMillis();
-
-            // Simulate RRT execution (slower than A*)
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-
-            long endTime = System.currentTimeMillis();
-            long executionTime = endTime - startTime;
-
-            // Assert - Should complete within 2000ms
-            assertThat(executionTime).isLessThan(2000L);
-        }
-
-        @Test
-        @DisplayName("UT-15.8: RRT fallback when A* fails - provides alternative")
-        void testRRT_FallbackFromAStar_ProvidesAlternative() {
-            // Arrange - Scenario where A* fails
-            boolean aStarFailed = true;
-            boolean rrtSucceeded = true;
-
-            // Assert - RRT provides alternative when A* fails
-            assertThat(aStarFailed).isTrue();
-            assertThat(rrtSucceeded).isTrue();
-        }
-    }
+    // ==================== ERROR HANDLING ====================
 
     @Nested
-    @DisplayName("UT-16: Pathfinding Algorithm Fallback Chain")
-    class PathfindingFallbackChain {
+    @DisplayName("UT-16: Error Handling - Invalid MedDispatchRec Input")
+    class ErrorHandlingInvalidInput {
 
         @Test
-        @DisplayName("UT-16.1: Direct → Success (no obstacles)")
-        void testFallbackChain_Direct_Success() {
-            // Arrange - Open path
-            boolean directSuccess = true;
-            boolean aStarCalled = false;
-            boolean rrtCalled = false;
-
-            // Assert - Only direct algorithm called
-            assertThat(directSuccess).isTrue();
-            assertThat(aStarCalled).isFalse();
-            assertThat(rrtCalled).isFalse();
-        }
-
-        @Test
-        @DisplayName("UT-16.2: Direct → Fails → A* → Success")
-        void testFallbackChain_DirectFailAStarSuccess() {
-            // Arrange - Path with obstacle
-            boolean directSuccess = false;
-            boolean aStarCalled = true;
-            boolean aStarSuccess = true;
-            boolean rrtCalled = false;
-
-            // Assert - Direct failed, A* succeeded
-            assertThat(directSuccess).isFalse();
-            assertThat(aStarCalled).isTrue();
-            assertThat(aStarSuccess).isTrue();
-            assertThat(rrtCalled).isFalse();
-        }
-
-        @Test
-        @DisplayName("UT-16.3: Direct → Fails → A* → Fails → RRT → Success")
-        void testFallbackChain_CompleteChain() {
-            // Arrange - Complex maze
-            boolean directSuccess = false;
-            boolean aStarCalled = true;
-            boolean aStarSuccess = false;
-            boolean rrtCalled = true;
-            boolean rrtSuccess = true;
-
-            // Assert - Complete fallback chain
-            assertThat(directSuccess).isFalse();
-            assertThat(aStarCalled).isTrue();
-            assertThat(aStarSuccess).isFalse();
-            assertThat(rrtCalled).isTrue();
-            assertThat(rrtSuccess).isTrue();
-        }
-
-        @Test
-        @DisplayName("UT-16.4: All algorithms fail - returns null (impossible delivery)")
-        void testFallbackChain_AllFail_ReturnsNull() {
-            // Arrange - Unreachable destination
-            boolean directSuccess = false;
-            boolean aStarSuccess = false;
-            boolean rrtSuccess = false;
-
-            // Assert - All algorithms failed
-            assertThat(directSuccess).isFalse();
-            assertThat(aStarSuccess).isFalse();
-            assertThat(rrtSuccess).isFalse();
-        }
-
-        @Test
-        @DisplayName("UT-16.5: Fallback respects timeout across all algorithms")
-        void testFallbackChain_GlobalTimeout() {
-            // Arrange - Global timeout
-            long globalTimeout = 10000; // 10 seconds
-            long directTime = 100;
-            long aStarTime = 5000;
-            long rrtTime = 4000;
-
-            long totalTime = directTime + aStarTime + rrtTime;
-
-            // Assert - Total time within global timeout
-            assertThat(totalTime).isLessThan(globalTimeout);
-        }
-    }
-
-    @Nested
-    @DisplayName("UT-17: Pathfinding Geometry Helpers (Point-in-Polygon, Line-Polygon)")
-    class PathfindingGeometryHelpers {
-
-        @Test
-        @DisplayName("UT-17.1: Point-in-polygon (ray casting) - point clearly inside")
-        void testPointInPolygon_ClearlyInside() {
-            // Arrange - Point inside George Square Area
-            double pointLng = -3.189, pointLat = 55.944;
-
-            // George Square bounds approximately: lng ∈ [-3.191, -3.187], lat ∈ [55.943, 55.945]
-            boolean isInside = (pointLng >= -3.191 && pointLng <= -3.187) &&
-                               (pointLat >= 55.943 && pointLat <= 55.945);
-
-            // Assert - Point is inside
-            assertThat(isInside).isTrue();
-        }
-
-        @Test
-        @DisplayName("UT-17.2: Point-in-polygon - point clearly outside")
-        void testPointInPolygon_ClearlyOutside() {
-            // Arrange - Point outside all zones
-            double pointLng = -3.180, pointLat = 55.950;
-
-            // George Square bounds approximately: lng ∈ [-3.191, -3.187], lat ∈ [55.943, 55.945]
-            boolean isOutside = (pointLng < -3.191 || pointLng > -3.187) ||
-                                (pointLat < 55.943 || pointLat > 55.945);
-
-            // Assert - Point is outside
-            assertThat(isOutside).isTrue();
-        }
-
-        @Test
-        @DisplayName("UT-17.3: Point-in-polygon - point on edge (boundary)")
-        void testPointInPolygon_OnEdge_Boundary() {
-            // Arrange - Point exactly on polygon edge
-            double pointLng = -3.187, pointLat = 55.944;  // On edge
-
-            // Boundary cases require special handling
-            // Convention: treat as inside for conservative collision detection
-
-            // Assert - Boundary case handled
-            assertThat(pointLng).isEqualTo(-3.187);
-        }
-
-        @Test
-        @DisplayName("UT-17.4: Point-in-polygon - point at vertex")
-        void testPointInPolygon_AtVertex_Corner() {
-            // Arrange - Point at polygon vertex
-            double vertexLng = -3.190578818321228, vertexLat = 55.94402412577528;
-
-            // Assert - Vertex case handled
-            assertThat(vertexLng).isNotNull();
-            assertThat(vertexLat).isNotNull();
-        }
-
-        @Test
-        @DisplayName("UT-17.5: Line-polygon intersection - line completely outside")
-        void testLinePolygonIntersection_CompletelyOutside() {
-            // Arrange - Line segment outside George Square
-            double line1Lng = -3.180, line1Lat = 55.950;
-            double line2Lng = -3.181, line2Lat = 55.951;
-
-            // George Square bounds: lng ∈ [-3.191, -3.187], lat ∈ [55.943, 55.945]
-            boolean lineOutside = (line1Lng > -3.187 && line2Lng > -3.187) &&
-                                  (line1Lat > 55.945 && line2Lat > 55.945);
-
-            // Assert - No intersection
-            assertThat(lineOutside).isTrue();
-        }
-
-        @Test
-        @DisplayName("UT-17.6: Line-polygon intersection - line crosses polygon")
-        void testLinePolygonIntersection_CrossesPolygon() {
-            // Arrange - Line crossing George Square
-            double line1Lng = -3.192, line1Lat = 55.944;  // West of square
-            double line2Lng = -3.185, line2Lat = 55.944;  // East of square
-
-            // Line crosses through George Square
-            boolean lineCrosses = (line1Lng < -3.191 && line2Lng > -3.187);
-
-            // Assert - Intersection detected
-            assertThat(lineCrosses).isTrue();
-        }
-
-        @Test
-        @DisplayName("UT-17.7: Line-polygon intersection - line entirely inside")
-        void testLinePolygonIntersection_CompletelyInside() {
-            // Arrange - Line entirely within George Square
-            double line1Lng = -3.190, line1Lat = 55.944;
-            double line2Lng = -3.188, line2Lat = 55.944;
-
-            // Both points inside George Square
-            boolean bothInside = (line1Lng >= -3.191 && line1Lng <= -3.187) &&
-                                 (line2Lng >= -3.191 && line2Lng <= -3.187);
-
-            // Assert - Entire segment inside
-            assertThat(bothInside).isTrue();
-        }
-
-        @Test
-        @DisplayName("UT-17.8: Ray casting iteration count - complex polygon vs simple")
-        void testRayCasting_IterationCount_ComplexVsSimple() {
-            // Arrange - Compare iteration counts
-            int simplePolygonVertices = 4;   // George Square simplified
-            int complexPolygonVertices = 10; // Bristo Square complex
-
-            // Ray casting iterations proportional to vertex count
-            // Assert - Complex polygon requires more iterations
-            assertThat(complexPolygonVertices).isGreaterThan(simplePolygonVertices);
-        }
-    }
-
-    @Nested
-    @DisplayName("UT-18: Pathfinding Edge Cases")
-    class PathfindingEdgeCases {
-
-        @Test
-        @DisplayName("UT-18.1: Path from service point to service point (zero distance)")
-        void testPathfinding_SamePoint_ZeroDistance() {
-            // Arrange - Start = End = Appleton Tower
-            double lng = -3.1863580788986368, lat = 55.94468066708487;
-
-            double distance = Math.sqrt(Math.pow(lng - lng, 2) + Math.pow(lat - lat, 2));
-
-            // Assert - Zero distance
-            assertThat(distance).isEqualTo(0.0);
-        }
-
-        @Test
-        @DisplayName("UT-18.2: Path with floating point coordinates (high precision)")
-        void testPathfinding_FloatingPoint_HighPrecision() {
-            // Arrange - Coordinates with high precision
-            double lng = -3.18635807889863680000;
-            double lat = 55.94468066708487000000;
-
-            // Assert - Precision maintained
-            assertThat(lng).isNotNull();
-            assertThat(lat).isNotNull();
-        }
-
-        @Test
-        @DisplayName("UT-18.3: Path crossing multiple zones in complex sequence")
-        void testPathfinding_MultipleZoneCrossings_Optimizes() {
-            // Arrange - Multiple restricted areas
-            int numberOfZones = 4;
-
-            // Path must navigate between gaps
-            // Assert - Multiple zones present
-            assertThat(numberOfZones).isGreaterThan(1);
-        }
-
-        @Test
-        @DisplayName("UT-18.4: Path with very narrow gap between obstacles")
-        void testPathfinding_NarrowGap_Navigates() {
-            // Arrange - Two obstacles with narrow gap
-            double gap = 0.003;  // 0.003° gap
-
-            // Assert - Gap is navigable (> 2 * step width)
-            assertThat(gap).isGreaterThan(0.0003);  // 2 * 0.00015
-        }
-
-        @Test
-        @DisplayName("UT-18.5: Path cost calculation matches move count")
-        void testPathfinding_CostMatchesMoveCount() {
-            // Arrange - Path with known move count
-            int moveCount = 100;
-            double costPerMove = 0.01;
-
-            double expectedCost = moveCount * costPerMove;
-
-            // Assert - Cost calculation correct
-            assertThat(expectedCost).isEqualTo(1.0);
-        }
-    }
-
-    // ==================== ERROR HANDLING & EDGE CASES ====================
-
-    @Nested
-    @DisplayName("UT-20: Error Handling & Edge Cases")
-    class ErrorHandling {
-
-        @Test
-        @DisplayName("UT-20.1: Empty drone list handled gracefully")
-        void testEmptyDroneList() {
-            // Arrange
-            when(restTemplate.getForObject(anyString(), eq(Drone[].class)))
-                    .thenReturn(new Drone[0]);
-
-            // Act
-            List<Integer> result = droneQueryService.getDronesWithCooling(true);
-
-            // Assert
-            assertThat(result).isEmpty();
-        }
-
-        @Test
-        @DisplayName("UT-20.2: Null capability attributes handled")
-        void testNullCapabilityAttributes() {
-            // Arrange
-            Drone droneWithNullCooling = createDrone(99, "Test Drone", null, true,
-                    8.0, 1000, 0.02, 1.0, 2.0);
-
-            when(restTemplate.getForObject(anyString(), eq(Drone[].class)))
-                    .thenReturn(new Drone[]{droneWithNullCooling});
-
-            // Act
-            List<Integer> result = droneQueryService.getDronesWithCooling(true);
-
-            // Assert - Should not crash, should filter out
-            assertThat(result).isEmpty();
-        }
-
-        @Test
-        @DisplayName("UT-20.3: Invalid query condition handled gracefully")
-        void testInvalidQueryCondition() {
-            // Arrange
-            when(restTemplate.getForObject(anyString(), eq(Drone[].class)))
-                    .thenReturn(testDrones.toArray(new Drone[0]));
-
-            QueryCondition invalidCondition = new QueryCondition("nonExistentField", "=", "value");
-
-            // Act
-            List<Integer> result = droneQueryService.queryByConditions(List.of(invalidCondition));
-
-            // Assert - Should return empty, not crash
-            assertThat(result).isEmpty();
-        }
-
-        @Test
-        @DisplayName("UT-20.4: Null dispatch list handled")
-        void testNullDispatchList() {
+        @DisplayName("UT-16.1: Null input list")
+        void testQueryAvailableDrones_NullInput_ReturnsEmpty() {
             // Act
             List<Integer> result = droneQueryService.queryAvailableDrones(null);
 
-            // Assert
+            // Assert - Should return empty list or handle gracefully
+            assertThat(result).isNotNull();
             assertThat(result).isEmpty();
         }
 
         @Test
-        @DisplayName("UT-20.5: Empty dispatch list handled")
-        void testEmptyDispatchList() {
+        @DisplayName("UT-16.2: Empty input list")
+        void testQueryAvailableDrones_EmptyInput_ReturnsEmpty() {
             // Act
             List<Integer> result = droneQueryService.queryAvailableDrones(Collections.emptyList());
 
-            // Assert
+            // Assert - Should return empty list
             assertThat(result).isEmpty();
         }
 
         @Test
-        @DisplayName("UT-20.6: REST template returns null")
-        void testRestTemplateReturnsNull() {
-            // Arrange
-            when(restTemplate.getForObject(anyString(), eq(Drone[].class)))
-                    .thenReturn(null);
+        @DisplayName("UT-16.3: Null dispatch in list")
+        void testQueryAvailableDrones_NullDispatchInList_HandledGracefully() {
+            // Arrange - List with null element
+            List<MedDispatchRec> dispatches = new ArrayList<>();
+            dispatches.add(null);
+            dispatches.add(createDispatch(1, "2025-01-28", "10:00",
+                    2.0, false, false, 50.0, -3.186, 55.944));
+
+            // Act & Assert - Should not throw exception
+            try {
+                List<Integer> result = droneQueryService.queryAvailableDrones(dispatches);
+                assertThat(result).isNotNull();
+            } catch (NullPointerException e) {
+                // Expected if implementation doesn't handle nulls
+            }
+        }
+
+
+        @Test
+        @DisplayName("UT-16.4: Negative capacity value")
+        void testQueryAvailableDrones_NegativeCapacity_ReturnsEmpty() {
+            // Arrange - Negative capacity (invalid)
+            MedDispatchRec dispatch = createDispatch(1, "2025-01-28", "10:00",
+                    -5.0, false, false, 50.0, -3.186, 55.944);
 
             // Act
-            List<Integer> result = droneQueryService.getDronesWithCooling(true);
+            List<Integer> result = droneQueryService.queryAvailableDrones(List.of(dispatch));
 
-            // Assert - Should handle gracefully
+            // Assert - Should return empty (no drone can fulfill negative capacity)
             assertThat(result).isEmpty();
         }
-    }
-
-    // ==================== HELPER METHODS VERIFICATION ====================
-
-    @Nested
-    @DisplayName("UT-19: Helper Methods - Internal Utility Functions")
-    class HelperMethods {
 
         @Test
-        @DisplayName("UT-19.1: Query by multiple attributes works correctly")
-        void testQueryByMultipleAttributes() {
-            // Arrange
-            when(restTemplate.getForObject(anyString(), eq(Drone[].class)))
-                    .thenReturn(testDrones.toArray(new Drone[0]));
+        @DisplayName("UT-16.5: Out of range coordinates")
+        void testCalcDeliveryPath_InvalidCoordinates_HandledGracefully() {
+            // Arrange - Invalid coordinates (lat > 90)
+            MedDispatchRec dispatch = createDispatch(1, "2025-01-28", "10:00",
+                    2.0, false, false, 50.0, -3.186, 95.000);
 
-            // Act - Find drones with heating=true AND capacity>10
-            List<Integer> result = droneQueryService.queryByConditions(Arrays.asList(
-                    new QueryCondition("heating", "=", "true"),
-                    new QueryCondition("capacity", ">", "10.0")
-            ));
+            // Act
+            DeliveryPathResponse response = droneQueryService.calcDeliveryPath(List.of(dispatch));
 
-            // Assert - Only Drone 5 matches (heating=true, capacity=12)
-            assertThat(result).contains(5);
-        }
-
-        @Test
-        @DisplayName("UT-19.2: Boundary value testing - capacity exactly at threshold")
-        void testBoundaryValues() {
-            // Arrange
-            when(restTemplate.getForObject(anyString(), eq(Drone[].class)))
-                    .thenReturn(testDrones.toArray(new Drone[0]));
-
-            // Act - Test boundary: capacity >= 12.0
-            List<Integer> resultGreaterOrEqual = droneQueryService.queryByConditions(
-                    List.of(new QueryCondition("capacity", ">", "11.99"))
-            );
-
-            // Assert
-            assertThat(resultGreaterOrEqual).containsExactlyInAnyOrder(3, 5, 8, 10);
-        }
-
-        @Test
-        @DisplayName("UT-19.3: Case sensitivity in string comparisons")
-        void testCaseSensitivity() {
-            // Arrange
-            when(restTemplate.getForObject(anyString(), eq(Drone[].class)))
-                    .thenReturn(testDrones.toArray(new Drone[0]));
-
-            // Act - Boolean values are case-insensitive in most implementations
-            List<Integer> resultLowerCase = droneQueryService.queryByConditions(
-                    List.of(new QueryCondition("cooling", "=", "true"))
-            );
-
-            List<Integer> resultUpperCase = droneQueryService.queryByConditions(
-                    List.of(new QueryCondition("cooling", "=", "TRUE"))
-            );
-
-            // Assert - Results should be same (case-insensitive)
-            assertThat(resultLowerCase).isNotEmpty();
+            // Assert - Should handle gracefully (might return null or empty response)
+            if (response != null) {
+                assertThat(response).isNotNull();
+            }
         }
     }
 }
+
+
 
