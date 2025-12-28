@@ -1,6 +1,19 @@
+# ==========================================================
+# NETWORK MODE CONFIGURATION
+# ==========================================================
+# When in Asia (slow network to UK Azure):
+#   Uncomment the line below to use MOCK data (instant responses)
+#   spring.profiles.active: mock
+#
+# When in UK or want real data:
+#   Comment out or remove the line above
+# ==========================================================
+
 spring:
   application:
     name: IlpTutorial_1
+  profiles:
+     active: mock  # Uncomment this line to use mock data
 
 
 info:
