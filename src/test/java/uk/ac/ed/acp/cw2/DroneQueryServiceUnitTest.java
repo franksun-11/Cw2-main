@@ -862,16 +862,19 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-6.7: Multiple dispatches - different days (one unavailable)")
+        @DisplayName("UT-6.7: Multiple dispatches - different days")
         void testIsAvailableAtTime_MultipleDispatches_DifferentDays() {
-            // Arrange - Dispatch 1 on MONDAY (available), Dispatch 2 on TUESDAY (not available)
-            MedDispatchRec dispatch1 = createDispatch(1, "2025-12-22", "10:00:00",
-                    2.0, false, false, 20.0, -3.186, 55.944);
-            MedDispatchRec dispatch2 = createDispatch(2, "2025-12-23", "10:00:00",
-                    2.0, false, false, 20.0, -3.187, 55.945);
+           MedDispatchRec dispatch1 = createDispatch(1, "2025-12-23", "14:30",
+                    0.75, false, true, 13.5, -3.189, 55.941);
+           MedDispatchRec dispatch2 = createDispatch(2, "2025-12-23", "14:30",
+                            0.15, false, false, 10.5, -3.189, 55.951);
+           MedDispatchRec dispatch3 = createDispatch(3, "2025-12-22", "14:30",
+                            0.85, false, false, 15.0, -3.183, 55.95);
+           MedDispatchRec dispatch4 = createDispatch(4, "2025-12-23", "14:30",
+                            0.65, false, true, 10.0, -3.213, 55.94);
 
             // Act
-            List<Integer> result = droneQueryService.queryAvailableDrones(Arrays.asList(dispatch1, dispatch2));
+            List<Integer> result = droneQueryService.queryAvailableDrones(Arrays.asList(dispatch1, dispatch2, dispatch3, dispatch4));
 
             // Assert - Drone 1 should NOT be available (not available on TUESDAY)
             assertThat(result).doesNotContain(1);
@@ -933,7 +936,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-7.3: Multiple dispatches - same drone can fulfill all")
+        @DisplayName("UT-7.3: Multiple dispatches - same drone can fulfill all capacity requirements")
         void testFulfillAllDispatches_MultipleDispatches_SameDrone() {
             // Arrange - Dispatches: [capacity=2.0, capacity=2.0, capacity=1.5]
             // Using TUESDAY: Drone 5 (capacity=12.0) and Drone 2 (capacity=8.0) both sufficient
@@ -955,7 +958,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-7.4: Multiple dispatches - cooling required by one")
+        @DisplayName("UT-7.4: Cooling required - drone must have cooling")
         void testFulfillAllDispatches_CoolingRequired() {
             // Arrange - One dispatch requires cooling
             // Using TUESDAY: Drone 2 (cooling=false), Drone 5,8,9 (cooling=true)
@@ -995,7 +998,7 @@ class DroneQueryServiceUnitTest {
             // Dispatch needs cooling
             // Using TUESDAY
             MedDispatchRec dispatch = createDispatch(1, "2025-12-23", "10:00:00",
-                    4.0, true, false, 30.0, -3.186, 55.944);
+                    4.0, true, true, 30.0, -3.186, 55.944);
 
             // Act
             List<Integer> result = droneQueryService.queryAvailableDrones(List.of(dispatch));
@@ -1043,6 +1046,20 @@ class DroneQueryServiceUnitTest {
             // Assert - Drones with capacity < 7.0 cannot handle dispatch2
             // Drone 2 (capacity=8.0) and Drone 5 (capacity=12.0) should be able to handle both
             assertThat(result).containsAnyOf(2, 5);
+        }
+        @Test
+        @DisplayName("UT-7.9: MaxMoves constraint - drone must have sufficient maxMoves")
+        void testFulfillAllDispatches_MaxMovesConstraint() {
+            // Arrange - Dispatch requires a long distance, one near ocean terminal, one near appleton tower(e.g., 1000 moves)
+            MedDispatchRec dispatch1 = createDispatch(1, "2025-01-02", "12:00:00",
+                    4.0, false, false, 50.0, -3.280, 55.941);
+            MedDispatchRec dispatch2 = createDispatch(2, "2025-01-02", "12:00:00",
+                    4.0, false, false, 50.0, -3.180, 55.91);
+            // Act
+            List<Integer> result = droneQueryService.queryAvailableDrones(
+                    Arrays.asList(dispatch1, dispatch2));
+            // Assert - Only drones with maxMoves >= 1000 can fulfill
+            assertThat(result).containsAnyOf(1, 3, 6, 8);
         }
     }
 
