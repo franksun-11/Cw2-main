@@ -120,15 +120,15 @@ public class MockDataConfig {
     private Drone[] getMockDrones() {
         List<Drone> drones = new ArrayList<>();
         drones.add(createDrone(1, "Drone 1", true, true, 4.0, 2000, 0.01, 4.3, 6.5));
-        drones.add(createDrone(2, "Drone 2", false, true, 8.0, 1500, 0.015, 2.8, 4.2));
-        drones.add(createDrone(3, "Drone 3", false, false, 6.0, 1200, 0.012, 3.5, 5.0));
-        drones.add(createDrone(4, "Drone 4", false, true, 8.0, 1800, 0.018, 1.5, 2.5));
+        drones.add(createDrone(2, "Drone 2", false, true, 8.0, 1000, 0.03, 2.6, 5.4));
+        drones.add(createDrone(3, "Drone 3", false, false, 20.0, 4000, 0.05, 9.5, 11.5));
+        drones.add(createDrone(4, "Drone 4", false, true, 8.0, 1000, 0.02, 1.4, 2.5));
         drones.add(createDrone(5, "Drone 5", true, true, 12.0, 1500, 0.04, 1.8, 3.5));
-        drones.add(createDrone(6, "Drone 6", false, true, 4.0, 1000, 0.025, 5.2, 7.8));
-        drones.add(createDrone(7, "Drone 7", false, true, 10.0, 1400, 0.022, 3.0, 4.5));
-        drones.add(createDrone(8, "Drone 8", true, false, 14.0, 1600, 0.035, 2.2, 3.8));
-        drones.add(createDrone(9, "Drone 9", true, true, 16.0, 1300, 0.045, 1.2, 2.0));
-        drones.add(createDrone(10, "Drone 10", false, true, 20.0, 1100, 0.05, 0.8, 1.5));
+        drones.add(createDrone(6, "Drone 6", false, true, 4.0, 2000, 0.03, 3.0, 4.0));
+        drones.add(createDrone(7, "Drone 7", false, true, 8.0, 1000, 0.015, 1.4, 2.2));
+        drones.add(createDrone(8, "Drone 8", true, false, 20.0, 4000, 0.04, 5.4, 12.5));
+        drones.add(createDrone(9, "Drone 9", true, true, 8.0, 1000, 0.06, 2.4, 1.5));
+        drones.add(createDrone(10, "Drone 10", false, false, 12.0, 1500, 0.07, 1.4, 3.5));
         return drones.toArray(new Drone[0]);
     }
 
@@ -156,8 +156,8 @@ public class MockDataConfig {
         sp1.setId(1);
         sp1.setName("Appleton Tower");
         ServicePoint.Location loc1 = new ServicePoint.Location();
-        loc1.setLng(-3.186874);
-        loc1.setLat(55.944494);
+        loc1.setLng(-3.18635807889864);
+        loc1.setLat( 55.9446806670849);
         sp1.setLocation(loc1);
         servicePoints.add(sp1);
 
@@ -165,8 +165,8 @@ public class MockDataConfig {
         sp2.setId(2);
         sp2.setName("Ocean Terminal");
         ServicePoint.Location loc2 = new ServicePoint.Location();
-        loc2.setLng(-3.176152);
-        loc2.setLat(55.978802);
+        loc2.setLng(-3.17732611501824);
+        loc2.setLat(55.9811862793337);
         sp2.setLocation(loc2);
         servicePoints.add(sp2);
         return servicePoints.toArray(new ServicePoint[0]);
@@ -204,13 +204,13 @@ public class MockDataConfig {
         area3.setVertices(Arrays.asList(
                 createVertex(-3.189543485641479, 55.94552313663306),
                 createVertex(-3.189382553100586, 55.94553214854692),
-                createVertex(-3.1891441345214844, 55.94539680780061),
-                createVertex(-3.1891012191772456, 55.94535420498897),
-                createVertex(-3.1892406940460205, 55.94534118920679),
-                createVertex(-3.1892943382263184, 55.945264829136346),
-                createVertex(-3.189678192138672, 55.94523329858956),
-                createVertex(-3.1897103786468506, 55.94527740215124),
-                createVertex(-3.189735412597656, 55.94544022906157),
+                createVertex(-3.189259171485901, 55.94544803726933),
+                createVertex(-3.1892001628875732, 55.94533688994374),
+                createVertex(-3.189194798469543, 55.94519570234043),
+                createVertex(-3.189135789871216, 55.94511759833873),
+                createVertex(-3.188138008117676, 55.9452738061846),
+                createVertex(-3.1885510683059692, 55.946105902745614),
+                createVertex(-3.1895381212234497, 55.94555918427592),
                 createVertex(-3.189543485641479, 55.94552313663306)
         ));
         areas.add(area3);
@@ -219,15 +219,15 @@ public class MockDataConfig {
         area4.setId(4);
         area4.setName("Bayes Central Area");
         area4.setVertices(Arrays.asList(
-                createVertex(-3.1876373291015625, 55.94520696160767),
-                createVertex(-3.187432289123535, 55.94498391711548),
-                createVertex(-3.1869113445281982, 55.94507854844829),
-                createVertex(-3.1867992877960205, 55.94519119620112),
-                createVertex(-3.186916708946228, 55.94524680580927),
-                createVertex(-3.1870770454406738, 55.94527439876948),
-                createVertex(-3.187432289123535, 55.94524981034783),
-                createVertex(-3.1875550746917725, 55.94524981034783),
-                createVertex(-3.1876373291015625, 55.94520696160767)
+                createVertex(-3.1876927614212036, 55.94520696732767),
+                createVertex(-3.187555968761444, 55.9449621408666),
+                createVertex(-3.186981976032257, 55.94505676722831),
+                createVertex(-3.1872327625751495, 55.94536993377657),
+                createVertex(-3.1874459981918335, 55.9453361389472),
+                createVertex(-3.1873735785484314, 55.94519344934259),
+                createVertex(-3.1875935196876526, 55.94515665035927),
+                createVertex(-3.187624365091324, 55.94521973430925),
+                createVertex(-3.1876927614212036, 55.94520696732767)
         ));
         areas.add(area4);
         return areas.toArray(new RestrictedArea[0]);

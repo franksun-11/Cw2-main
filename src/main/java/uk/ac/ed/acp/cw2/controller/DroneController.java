@@ -1,5 +1,6 @@
 package uk.ac.ed.acp.cw2.controller;
 
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,7 +79,7 @@ public class DroneController {
      * query drones by multiple conditions
      */
     @PostMapping("/query")
-    public ResponseEntity<List<Integer>> queryDronesByConditions(@RequestBody List<QueryCondition> conditions) {
+    public ResponseEntity<List<Integer>> queryDronesByConditions(@RequestBody @Valid List<@Valid QueryCondition> conditions) {
 
         logger.info("Request: POST /query with {} conditions", conditions.size());
         logger.debug("Conditions: {}", conditions);
@@ -96,7 +97,7 @@ public class DroneController {
      * query drones that are available for dispatching
      */
     @PostMapping("/queryAvailableDrones")
-    public ResponseEntity<List<Integer>> queryAvailableDrones(@RequestBody List<MedDispatchRec> dispatches) {
+    public ResponseEntity<List<Integer>> queryAvailableDrones(@RequestBody @Valid List<@Valid MedDispatchRec> dispatches) {
         logger.info("Request: POST /queryAvailableDrones with {} dispatches", dispatches.size());
         logger.debug("Dispatches: {}", dispatches);
 
@@ -114,7 +115,7 @@ public class DroneController {
      */
     @PostMapping("/calcDeliveryPath")
     public ResponseEntity<DeliveryPathResponse> calculateDeliveryPath(
-            @RequestBody List<MedDispatchRec> dispatches) {
+            @RequestBody @Valid List<@Valid MedDispatchRec> dispatches) {
 
         logger.info("Request: POST /calcDeliveryPath with {} dispatches", dispatches.size());
         logger.debug("Dispatches: {}", dispatches);
@@ -144,7 +145,7 @@ public class DroneController {
      */
     @PostMapping("/calcDeliveryPathAsGeoJson")
     public ResponseEntity<String> calcDeliveryPathAsGeoJson(
-            @RequestBody List<MedDispatchRec> dispatches) {
+            @RequestBody @Valid List<@Valid MedDispatchRec> dispatches) {
 
         logger.info("Request: POST /calcDeliveryPathAsGeoJson with {} dispatches", dispatches.size());
         logger.debug("Dispatches: {}", dispatches);

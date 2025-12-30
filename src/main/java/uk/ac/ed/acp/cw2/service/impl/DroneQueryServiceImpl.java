@@ -2316,7 +2316,7 @@ public class DroneQueryServiceImpl implements DroneQueryService {
 
         // Check capacity
         if (req.getCapacity() != null &&
-            (cap.getCapacity() == null || cap.getCapacity() < req.getCapacity())) {
+                (cap.getCapacity() == null || cap.getCapacity() < req.getCapacity())) {
             return false;
         }
 
