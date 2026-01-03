@@ -23,13 +23,16 @@ import static org.hamcrest.Matchers.*;
  *   API endpoint contracts (200/404 status codes)
  *   JSON format validation
  *
- * Mock:
- *   - ILP REST endpoint (external service)
+ * Test categories:
+ * IR-001: GET /dronesWithCooling/{state} (3 tests)
+ * IR-002: GET /droneDetails/{id} (3 tests)
+ * IR-003: GET /queryAsPath/{attribute}/{value} (5 tests)
+ * IR-004: POST /query (7 tests)
+ * IR-005: POST /queryAvailableDrones (5 tests)
+ * IR-006: POST /calcDeliveryPath (5 tests)
+ * IR-007: POST /calcDeliveryPathAsGeoJson (3 tests)
  *
- * Real:
- *   - DroneQueryService
- *   - GeoService
- *   - Spring MVC
+ * total : 31 tests
  */
 
 @SpringBootTest

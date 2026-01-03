@@ -26,6 +26,22 @@ import static org.mockito.Mockito.*;
 /**
  * Comprehensive Unit Tests for DroneQueryServiceImpl
  * Testing for LO3 - Software Testing Coursework
+ *
+ * Test Categories:
+ * UT-1: Static Query - getDronesWithCooling() (4 tests)
+ * UT-2: Static Query - getDroneById() (4 tests)
+ * UT-3: Dynamic Query - queryAsPath() (5 tests)
+ * UT-4: Query Condition Matching - queryByConditions() (4 tests)
+ * UT-5: Operator Handling - Comparison Operations (>, <, =, !=) (6 tests)
+ * UT-6: Availability Checking - queryAvailableDrones() (7 tests)
+ * UT-7: Dispatch fullfillment - Capacity & Requirements (9 tests)
+ * UT-8: Cost Calculations - Pro-Rota Distribution (8 tests)
+ * UT-9: Pathfinding - satisfy basic attibutes (5 tests)
+ * UT-10: Pathfinding - No obstacles (6 tests)
+ * UT-11: Pathfinding - With obstacles (4 tests)
+ * UT-12: Error Handling - invalid MedDispatchRec inputs (5 tests)
+ *
+ * total tests: 67
  */
 @DisplayName("DroneQueryService Unit Tests - Comprehensive Coverage")
 class DroneQueryServiceUnitTest {
@@ -1066,11 +1082,11 @@ class DroneQueryServiceUnitTest {
     // ==================== COST CALCULATION ====================
 
     @Nested
-    @DisplayName("UT-12: Cost Calculation - Pro-Rata Distribution")
+    @DisplayName("UT-8: Cost Calculation - Pro-Rata Distribution")
     class CostCalculation {
 
         @Test
-        @DisplayName("UT-12.1: Single delivery - full costs")
+        @DisplayName("UT-8.1: Single delivery - full costs")
         void testCalculateCost_SingleDelivery_FullCosts() {
             // Arrange - 1 delivery, 100 moves
             // Drone: costInitial=10, costPerMove=0.1, costFinal=5
@@ -1093,7 +1109,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-12.2: Two deliveries - costs split equally")
+        @DisplayName("UT-8.2: Two deliveries - costs split equally")
         void testCalculateCost_TwoDeliveries_SplitEqually() {
             // Arrange - 2 deliveries, 100 total moves
             // Drone: costInitial=10, costPerMove=0.1, costFinal=5
@@ -1116,7 +1132,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-12.3: Three deliveries with pro-rata distribution")
+        @DisplayName("UT-8.3: Three deliveries with pro-rata distribution")
         void testCalculateCost_ThreeDeliveries_ProRataByMoves() {
             // Arrange - 3 deliveries, 1200 total moves
             // According to spec: costs distributed pro-rata (equally per delivery)
@@ -1141,7 +1157,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-12.4: Floating point precision ±0.01 tolerance")
+        @DisplayName("UT-8.4: Floating point precision ±0.01 tolerance")
         void testCalculateCost_FloatingPointPrecision() {
             // Arrange - Complex cost calculation that might have rounding errors
             // Drone with fractional costs
@@ -1165,7 +1181,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-12.5: Zero moves - only initial and final costs")
+        @DisplayName("UT-8.5: Zero moves - only initial and final costs")
         void testCalculateCost_ZeroMoves_OnlyFixedCosts() {
             // Arrange - Edge case: 0 moves (hover delivery)
             double costInitial = 4.3;
@@ -1187,7 +1203,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-12.6: Very high number of deliveries - precision maintained")
+        @DisplayName("UT-8.6: Very high number of deliveries - precision maintained")
         void testCalculateCost_ManyDeliveries_PrecisionMaintained() {
             // Arrange - 50 deliveries with high total cost
             double costInitial = 9.5;
@@ -1210,7 +1226,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-12.7: Cost calculation with maxCost constraint")
+        @DisplayName("UT-8.7: Cost calculation with maxCost constraint")
         void testCalculateCost_MaxCostConstraint_Respected() {
             // Arrange - Delivery with maxCost constraint
             double costInitial = 4.3;
@@ -1234,7 +1250,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-12.8: Cost calculation exceeds maxCost - identified")
+        @DisplayName("UT-8.8: Cost calculation exceeds maxCost - identified")
         void testCalculateCost_ExceedsMaxCost_Identified() {
             // Arrange - Delivery where calculated cost exceeds maxCost
             double costInitial = 9.5;
@@ -1261,7 +1277,7 @@ class DroneQueryServiceUnitTest {
     // ==================== PATHFINDING ALGORITHMS - CORE COMPONENT ====================
 
     @Nested
-    @DisplayName("UT-13: Pathfinding - satisfy basic attributes")
+    @DisplayName("UT-9: Pathfinding - satisfy basic attributes")
     class PathfindingBasicAttributes {
 
         private static final double STEP_WIDTH = 0.00015;
@@ -1308,7 +1324,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-13.1: Single delivery - flight path has correct step width")
+        @DisplayName("UT-9.1: Single delivery - flight path has correct step width")
         void testCalcDeliveryPath_SingleDelivery_CorrectStepWidth() {
             // Arrange - Single delivery using VALID working data
             List<MedDispatchRec> dispatches = List.of(
@@ -1336,7 +1352,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-13.2: path contains hover points")
+        @DisplayName("UT-9.2: path contains hover points")
         void testCalcDeliveryPath_HasHoverPoints() {
             // Arrange - Use VALID working data
             List<MedDispatchRec> dispatches = List.of(
@@ -1377,7 +1393,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-13.3: Flight path starts and ends at service point")
+        @DisplayName("UT-9.3: Flight path starts and ends at service point")
         void testCalcDeliveryPath_RoundTrip_StartsAndEndsAtServicePoint() {
             // Arrange - Use VALID working data
             List<MedDispatchRec> dispatches = List.of(
@@ -1412,7 +1428,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-13.4: delivered to the correct location - Hover point matches input delivery coordinates")
+        @DisplayName("UT-9.4: delivered to the correct location - Hover point matches input delivery coordinates")
         void testCalcDeliveryPath_HoverPoint_MatchesDeliveryCoordinate() {
             // Arrange - Use VALID working data with specific coordinates
             double expectedLng = -3.186508;
@@ -1458,7 +1474,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-13.5: Total moves matches flight path length")
+        @DisplayName("UT-9.5: Total moves matches flight path length")
             // unnecessary?
         void testCalcDeliveryPath_TotalMoves_MatchesFlightPath() {
             // Arrange - Use VALID working data
@@ -1488,7 +1504,7 @@ class DroneQueryServiceUnitTest {
     // ==================== PATHFINDING - NO OBSTACLES ====================
 
     @Nested
-    @DisplayName("UT-14: Pathfinding - No Obstacles")
+    @DisplayName("UT-10: Pathfinding - No Obstacles")
     class PathfindingNoObstacles {
 
         private static final double STEP_WIDTH = 0.00015;
@@ -1549,7 +1565,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-14.1: Simple delivery - validate path attributes")
+        @DisplayName("UT-10.1: Simple delivery - validate path attributes")
         void testSimpleDelivery_ValidatePath() {
             // Arrange
             List<MedDispatchRec> dispatches = List.of(
@@ -1596,7 +1612,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-14.2: Single delivery - no obstacles")
+        @DisplayName("UT-10.2: Single delivery - no obstacles")
         void testSingleDelivery_NoObstacles() {
             List<MedDispatchRec> dispatches = List.of(
                     createDispatch(1002, "2025-01-28", "10:00",
@@ -1611,7 +1627,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-14.3: Multiple deliveries  - same date")
+        @DisplayName("UT-10.3: Multiple deliveries  - same date")
         void testMultipleDeliveries_SameDate() {
             List<MedDispatchRec> dispatches = Arrays.asList(
                     createDispatch(1002, "2025-01-28", "10:00",
@@ -1633,7 +1649,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-14.4: Multiple deliveries - Different dates")
+        @DisplayName("UT-10.4: Multiple deliveries - Different dates")
         void testDifferentDates_GroupsByDate() {
             List<MedDispatchRec> dispatches = Arrays.asList(
                     createDispatch(1, "2025-12-23", "14:30",
@@ -1654,7 +1670,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-14.5: maxMoves boundary test - Long deliveries from different service points")
+        @DisplayName("UT-10.5: maxMoves boundary test - Long deliveries from different service points")
         void testLongDeliveries_MultipleServicePoints() {
             List<MedDispatchRec> dispatches = Arrays.asList(
                     createDispatch(1, "2025-12-22", "14:30",
@@ -1688,7 +1704,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-14.6: no solution - exceed capacity")
+        @DisplayName("UT-10.6: no solution - exceed capacity")
         void testNoSolution_ExceedCapacity() {
             List<MedDispatchRec> dispatches = Arrays.asList(
                     createDispatch(1, "2025-12-23", "14:30",
@@ -1721,7 +1737,7 @@ class DroneQueryServiceUnitTest {
     // ==================== PATHFINDING - WITH OBSTACLES ====================
 
     @Nested
-    @DisplayName("UT-15: Pathfinding - With Obstacles")
+    @DisplayName("UT-11: Pathfinding - With Obstacles")
     class PathfindingWithObstacles {
 
         @BeforeEach
@@ -1738,7 +1754,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-15.1: Single obstacle - path through George Square")
+        @DisplayName("UT-11.1: Single obstacle - path through George Square")
         void testSingleObstacle_ThroughGeorgeSquare() {
             // Arrange - Delivery that would cross George Square Area
             List<MedDispatchRec> dispatches = List.of(
@@ -1761,7 +1777,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-15.2: Multiple obstacles - around George Square and Bayes areas")
+        @DisplayName("UT-11.2: Multiple obstacles - around George Square and Bayes areas")
         void testMultipleObstacles_AroundGeorgeSquareAndBayes() {
             // Arrange - Two deliveries requiring navigation around multiple obstacles
             List<MedDispatchRec> dispatches = Arrays.asList(
@@ -1786,7 +1802,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-15.3: maxMoves boundary test  - distant locations with obstacles")
+        @DisplayName("UT-11.3: maxMoves boundary test  - distant locations with obstacles")
         void testExceedMaxMoves_DistantLocations() {
             // Arrange - Deliveries at very distant locations that may exceed drone maxMoves
             List<MedDispatchRec> dispatches = Arrays.asList(
@@ -1807,7 +1823,7 @@ class DroneQueryServiceUnitTest {
 
 
         @Test
-        @DisplayName("UT-15.4: No solution - delivery point inside obstacles(restricted area)")
+        @DisplayName("UT-11.4: No solution - delivery point inside obstacles(restricted area)")
         void testNoSolution_DeliveryInsideRestrictedArea() {
             // Arrange - Deliveries potentially inside or very close to restricted areas
             List<MedDispatchRec> dispatches = Arrays.asList(
@@ -1838,11 +1854,11 @@ class DroneQueryServiceUnitTest {
     // ==================== ERROR HANDLING ====================
 
     @Nested
-    @DisplayName("UT-16: Error Handling - Invalid MedDispatchRec Input")
+    @DisplayName("UT-12: Error Handling - Invalid MedDispatchRec Input")
     class ErrorHandlingInvalidInput {
 
         @Test
-        @DisplayName("UT-16.1: Null input list")
+        @DisplayName("UT-12.1: Null input list")
         void testQueryAvailableDrones_NullInput_ReturnsEmpty() {
             // Act
             List<Integer> result = droneQueryService.queryAvailableDrones(null);
@@ -1853,7 +1869,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-16.2: Empty input list")
+        @DisplayName("UT-12.2: Empty input list")
         void testQueryAvailableDrones_EmptyInput_ReturnsEmpty() {
             // Act
             List<Integer> result = droneQueryService.queryAvailableDrones(Collections.emptyList());
@@ -1863,7 +1879,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-16.3: Null dispatch in list")
+        @DisplayName("UT-12.3: Null dispatch in list")
         void testQueryAvailableDrones_NullDispatchInList_HandledGracefully() {
             // Arrange - List with null element
             List<MedDispatchRec> dispatches = new ArrayList<>();
@@ -1882,7 +1898,7 @@ class DroneQueryServiceUnitTest {
 
 
         @Test
-        @DisplayName("UT-16.4: Negative capacity value")
+        @DisplayName("UT-12.4: Negative capacity value")
         void testQueryAvailableDrones_NegativeCapacity_ReturnsEmpty() {
             // Arrange - Negative capacity (invalid)
             MedDispatchRec dispatch = createDispatch(1, "2025-01-28", "10:00",
@@ -1896,7 +1912,7 @@ class DroneQueryServiceUnitTest {
         }
 
         @Test
-        @DisplayName("UT-16.5: Out of range coordinates")
+        @DisplayName("UT-12.5: Out of range coordinates")
         void testCalcDeliveryPath_InvalidCoordinates_HandledGracefully() {
             // Arrange - Invalid coordinates (lat > 90)
             MedDispatchRec dispatch = createDispatch(1, "2025-01-28", "10:00",
