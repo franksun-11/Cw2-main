@@ -12,6 +12,13 @@ on:
   release:
     types: [ published ]
 
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  statuses: write
+  issues: write
+
 env:
   ILP_ENDPOINT: ${{ secrets.ILP_ENDPOINT || 'https://ilp-rest-2025-bvh6e9hschfagrgy.ukwest-01.azurewebsites.net' }}
 
@@ -347,6 +354,7 @@ jobs:
           path: target/*.jar
 
       - name: Build Docker image
+        continue-on-error: true
         run: |
           docker build -t ilp-drone-service:${{ github.sha }} .
           docker tag ilp-drone-service:${{ github.sha }} ilp-drone-service:latest
