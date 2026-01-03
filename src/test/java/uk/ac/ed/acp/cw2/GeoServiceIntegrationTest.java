@@ -13,7 +13,7 @@ import static org.assertj.core.api.AssertionsForClassTypes.within;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DirtiesContext
-class ApiIntegrationTest {
+class GeoServiceIntegrationTest {
 
     @LocalServerPort
     private int port;
