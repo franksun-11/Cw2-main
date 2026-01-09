@@ -6,8 +6,8 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    # Run every 6 hours for live API monitoring (Gap 6 solution)
-    - cron: '0 */6 * * *'
+    # Run weekly on Monday at 00:00 UTC
+    - cron: '0 0 * * 1'
   workflow_dispatch:  # Allow manual triggering
   release:
     types: [ published ]
