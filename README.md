@@ -2,7 +2,7 @@
 
 A comprehensive Spring Boot REST API service for managing autonomous drone-based medication delivery operations, including route optimization, availability checking, and GeoJSON path visualization.
 
-## 🚁 Overview
+## Overview
 
 This project implements a complete microservice for a drone delivery system that:
 
@@ -72,12 +72,12 @@ The project follows a clean **layered architecture** pattern with clear separati
 
 ### Key Architectural Features
 
-✅ **Microservice Architecture**: Stateless REST API ready for containerization  
-✅ **External Data Integration**: All operational data fetched from ILP REST service  
-✅ **Environment-Driven Configuration**: ILP_ENDPOINT configurable via environment variable  
-✅ **Multi-Strategy Optimization**: Three pathfinding strategies for optimal delivery  
-✅ **Clean Separation**: Controllers handle HTTP, Services implement algorithms  
-✅ **Dockerized Deployment**: Multi-stage build for production-ready containers  
+ **Microservice Architecture**: Stateless REST API ready for containerization  
+ **External Data Integration**: All operational data fetched from ILP REST service  
+ **Environment-Driven Configuration**: ILP_ENDPOINT configurable via environment variable  
+ **Multi-Strategy Optimization**: Three pathfinding strategies for optimal delivery  
+ **Clean Separation**: Controllers handle HTTP, Services implement algorithms  
+ **Dockerized Deployment**: Multi-stage build for production-ready containers  
 
 ---
 
@@ -123,11 +123,11 @@ public ResponseEntity<DeliveryPathResponse> calculateDeliveryPath(
 - Allow multiple implementations
 
 **Implementation Responsibilities:**
-- ✅ Core business logic
-- ✅ Complex calculations and algorithms
-- ✅ Data transformation
-- ✅ External API integration (ILP REST service)
-- ✅ Path optimization strategies
+-  Core business logic
+-  Complex calculations and algorithms
+-  Data transformation
+-  External API integration (ILP REST service)
+-  Path optimization strategies
 
 **Key Algorithms Implemented:**
 
@@ -976,15 +976,15 @@ src/
 
 ### Architecture Highlights
 
-✅ **Clean Separation**: CW1 (Geographic) + CW2 (Drone Delivery) clearly separated  
-✅ **Testability**: Interface-based design allows easy mocking  
-✅ **External Data Integration**: All drone/service point data from ILP REST API  
-✅ **Pragmatic Design**: DTOs double as domain models (no over-engineering)  
-✅ **SOLID Principles**: Dependency inversion, single responsibility throughout  
+ **Clean Separation**: CW1 (Geographic) + CW2 (Drone Delivery) clearly separated  
+ **Testability**: Interface-based design allows easy mocking  
+ **External Data Integration**: All drone/service point data from ILP REST API  
+ **Pragmatic Design**: DTOs double as domain models (no over-engineering)  
+ **SOLID Principles**: Dependency inversion, single responsibility throughout  
 
 ---
 
-## 📝 Request Flow
+##  Request Flow
 
 1. **Request Arrival** → `@PostMapping` in `GeoController` receives HTTP request
 2. **JSON Deserialization** → Spring automatically converts JSON to DTO
@@ -1008,7 +1008,7 @@ Client Request
 
 ---
 
-## 🤝 Contributing
+##  Contributing
 
 When contributing to this project:
 
@@ -1022,13 +1022,13 @@ When contributing to this project:
 
 ---
 
-## 📄 License
+##  License
 
 This project is part of the Informatics Large Practical coursework at the University of Edinburgh.
 
 ---
 
-## 👤 Author
+##  Author
 
 **Student ID:** s2564099  
 **Course:** Informatics Large Practical - Coursework 2  
@@ -1037,7 +1037,7 @@ This project is part of the Informatics Large Practical coursework at the Univer
 
 ---
 
-## 📚 External Dependencies
+##  External Dependencies
 
 ### ILP REST Service
 
