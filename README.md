@@ -1,6 +1,6 @@
 # ILP CW2 - Drone-Based Medication Delivery Service
 
-A comprehensive Spring Boot REST API service for managing autonomous drone-based medication delivery operations, including route optimization, availability checking, and GeoJSON path visualization.
+A comprehensive Spring Boot REST API service for managing autonomous drone-based medication delivery operations, including route optimization, availability checking, and GeoJSON path visualization
 
 ## Overview
 
